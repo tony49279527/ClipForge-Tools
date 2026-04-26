@@ -1,18 +1,18 @@
 {% extends "base.html" %}
 
-{% block title %}Job {{ job["id"] }} | ClipForge Tools{% endblock %}
+{% block title %}任务 {{ job["id"] }} | ClipForge Tools{% endblock %}
 
 {% block content %}
 <section class="hero hero-compact">
     <div class="hero-copy">
-        <span class="eyebrow">Job Detail</span>
-        <h1>Job #{{ job["id"] }}</h1>
+        <span class="eyebrow">任务详情</span>
+        <h1>任务 #{{ job["id"] }}</h1>
         <p class="hero-text">{{ job["project_name"] }} / {{ job["product_name"] }}</p>
     </div>
     <aside class="hero-aside">
         <div class="hero-panel">
-            <h3>Pipeline status</h3>
-            <p class="hint compact">This page auto-refreshes every 5 seconds while the background task is active.</p>
+            <h3>工作流状态</h3>
+            <p class="hint compact">当后台任务仍在运行时，这个页面会每 5 秒自动刷新一次状态。</p>
         </div>
     </aside>
 </section>
@@ -21,30 +21,30 @@
     <div class="section-head">
         <div></div>
         <div class="actions">
-            <a class="btn ghost" href="/">Back Home</a>
-            <a class="btn ghost" href="/jobs">View Jobs</a>
+            <a class="btn ghost" href="/">返回首页</a>
+            <a class="btn ghost" href="/jobs">查看任务列表</a>
         </div>
     </div>
 
     <div class="grid three stats-grid">
         <div class="metric">
-            <span>Status</span>
+            <span>状态</span>
             <strong id="job-status">{{ job["status"] }}</strong>
         </div>
         <div class="metric">
-            <span>Current Step</span>
+            <span>当前步骤</span>
             <strong id="job-step">{{ job["current_step"] or "-" }}</strong>
         </div>
         <div class="metric">
-            <span>Total Tokens</span>
+            <span>总 Tokens</span>
             <strong id="job-tokens">{{ job["total_tokens"] }}</strong>
         </div>
         <div class="metric">
-            <span>Estimated Cost (CNY)</span>
+            <span>预估成本（CNY）</span>
             <strong id="job-cost">{{ job["estimated_cost_cny"] }}</strong>
         </div>
         <div class="metric metric-wide">
-            <span>Final Video Path</span>
+            <span>最终视频路径</span>
             <strong id="job-final-path">{{ job["final_video_path"] or "-" }}</strong>
         </div>
         <div class="metric metric-wide">
@@ -65,7 +65,7 @@
     {% endif %}
 
     <div class="note warning">
-        Due to YouTube Data API restrictions, videos uploaded via `videos.insert` from unaudited API projects may still end up Private.
+        受 YouTube Data API 限制影响，未经审核的 API 项目即使选择了 `unlisted` 或 `public`，最终上传结果也可能仍被强制设为 `private`。
     </div>
 
     {% if job["error_message"] %}
@@ -74,18 +74,18 @@
     <div class="note error hidden" id="job-error"></div>
     {% endif %}
 
-    <h2>Clips</h2>
+    <h2>视频片段</h2>
     <div class="table-wrap">
         <table id="clips-table">
             <thead>
                 <tr>
-                    <th>Clip</th>
-                    <th>Status</th>
+                    <th>片段</th>
+                    <th>状态</th>
                     <th>Seedance Task ID</th>
-                    <th>Reference Image</th>
-                    <th>Local Path</th>
+                    <th>参考图</th>
+                    <th>本地路径</th>
                     <th>Tokens</th>
-                    <th>Cost</th>
+                    <th>成本</th>
                 </tr>
             </thead>
             <tbody>
@@ -113,7 +113,7 @@
         const total = clips.length || 1;
         const percent = Math.round((completed / total) * 100);
         document.getElementById("progress-fill").style.width = `${percent}%`;
-        document.getElementById("progress-text").textContent = `${completed}/${total} clips completed`;
+        document.getElementById("progress-text").textContent = `已完成 ${completed}/${total} 个片段`;
         document.getElementById("job-status").textContent = job.status;
         document.getElementById("job-step").textContent = job.current_step || "-";
         document.getElementById("job-tokens").textContent = job.total_tokens;

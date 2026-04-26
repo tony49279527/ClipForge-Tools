@@ -32,6 +32,22 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
+def resolve_lang(request: Request) -> str:
+    lang = request.query_params.get("lang", "en").lower()
+    return lang if lang in {"en", "zh"} else "en"
+
+
+def build_common_context(request: Request) -> dict:
+    lang = resolve_lang(request)
+    return {
+        "request": request,
+        "lang": lang,
+        "is_zh": lang == "zh",
+        "lang_switch_en": str(request.url.include_query_params(lang="en")),
+        "lang_switch_zh": str(request.url.include_query_params(lang="zh")),
+    }
+
+
 def sanitize_filename(filename: str) -> str:
     source = Path(filename).name
     stem = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in Path(source).stem)
@@ -71,10 +87,9 @@ def on_startup() -> None:
 
 @app.get("/")
 def index(request: Request):
-    return templates.TemplateResponse(
-        "index.html",
+    context = build_common_context(request)
+    context.update(
         {
-            "request": request,
             "defaults": {
                 "video_mode": "shorts",
                 "ratio": "9:16",
@@ -88,7 +103,11 @@ def index(request: Request):
                 "created after July 28, 2020 and not yet audited may be forced to Private even if you select "
                 "unlisted or public."
             ),
-        },
+        }
+    )
+    return templates.TemplateResponse(
+        "index.html",
+        context,
     )
 
 
@@ -147,13 +166,16 @@ async def create_job_view(
         update_job_fields(job_id, {"uploaded_images_note": note})
 
     background_tasks.add_task(run_video_job, job_id)
-    return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
+    lang = resolve_lang(request)
+    return RedirectResponse(url=f"/jobs/{job_id}?lang={lang}", status_code=303)
 
 
 @app.get("/jobs")
 def jobs(request: Request):
     rows = get_all_jobs()
-    return templates.TemplateResponse("jobs.html", {"request": request, "jobs": rows})
+    context = build_common_context(request)
+    context.update({"jobs": rows})
+    return templates.TemplateResponse("jobs.html", context)
 
 
 @app.get("/jobs/{job_id}")
@@ -162,7 +184,9 @@ def job_detail(request: Request, job_id: int):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     clips = get_clip_rows_by_job_id(job_id)
-    return templates.TemplateResponse("job.html", {"request": request, "job": job, "clips": clips})
+    context = build_common_context(request)
+    context.update({"job": job, "clips": clips})
+    return templates.TemplateResponse("job.html", context)
 
 
 @app.get("/jobs/{job_id}/status")

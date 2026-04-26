@@ -1,27 +1,27 @@
 {% extends "base.html" %}
 
-{% block title %}新建任务 | ClipForge Tools{% endblock %}
+{% block title %}{% if is_zh %}新建任务{% else %}New Job{% endif %} | ClipForge Tools{% endblock %}
 
 {% block content %}
 <section class="hero">
     <div class="hero-copy">
-        <span class="eyebrow">片段式视频工作流</span>
-        <h1>把工具产品页，变成更像样的视频素材。</h1>
-        <p class="hero-text">面向五金工具、汽修工具、RV 配件和 Amazon 卖家。用一个控制台完成 Seedance 短片段生成、FFmpeg 拼接和 YouTube 发布。</p>
+        <span class="eyebrow">{% if is_zh %}片段式视频工作流{% else %}Clip-Based Video Pipeline{% endif %}</span>
+        <h1>{% if is_zh %}把工具产品页，变成更像样的视频素材。{% else %}Turn tool listings into polished demo videos.{% endif %}</h1>
+        <p class="hero-text">{% if is_zh %}面向五金工具、汽修工具、RV 配件和 Amazon 卖家。用一个控制台完成 Seedance 短片段生成、FFmpeg 拼接和 YouTube 发布。{% else %}Built for Amazon sellers in hardware, auto repair, RV accessories, and garage gear. Generate short Seedance clips, stitch them with FFmpeg, and publish to YouTube from one control panel.{% endif %}</p>
         <div class="hero-pills">
-            <span>Shorts 与长视频流程</span>
-            <span>FFmpeg 自动拼接</span>
-            <span>YouTube 发布就绪</span>
+            <span>{% if is_zh %}Shorts 与长视频流程{% else %}Shorts + long-form workflows{% endif %}</span>
+            <span>{% if is_zh %}FFmpeg 自动拼接{% else %}FFmpeg stitching{% endif %}</span>
+            <span>{% if is_zh %}YouTube 发布就绪{% else %}YouTube publish-ready{% endif %}</span>
         </div>
     </div>
     <aside class="hero-aside">
         <div class="hero-panel">
-            <h3>这套流程可以处理</h3>
+            <h3>{% if is_zh %}这套流程可以处理{% else %}What this flow handles{% endif %}</h3>
             <ul class="feature-list">
-                <li>1、2、4、20 段分镜提示词编排</li>
-                <li>参考图 URL 按片段自动分配</li>
-                <li>下载、拼接与 token 成本统计</li>
-                <li>最终成片后可选上传 YouTube</li>
+                <li>{% if is_zh %}1、2、4、20 段分镜提示词编排{% else %}Prompt sequencing for 1, 2, 4, or 20 clips{% endif %}</li>
+                <li>{% if is_zh %}参考图 URL 按片段自动分配{% else %}Reference image URL mapping per clip{% endif %}</li>
+                <li>{% if is_zh %}下载、拼接与 token 成本统计{% else %}Download, stitch, and track token cost{% endif %}</li>
+                <li>{% if is_zh %}最终成片后可选上传 YouTube{% else %}Optional YouTube upload after final render{% endif %}</li>
             </ul>
         </div>
     </aside>
@@ -30,55 +30,55 @@
 <section class="card form-shell">
     <div class="section-head form-head">
         <div>
-            <span class="eyebrow">新建任务</span>
-            <h2>配置一条产品视频生成任务</h2>
+            <span class="eyebrow">{% if is_zh %}新建任务{% else %}New Job{% endif %}</span>
+            <h2>{% if is_zh %}配置一条产品视频生成任务{% else %}Configure a product video run{% endif %}</h2>
         </div>
-        <p class="hint compact">第一版建议优先使用公网图片 URL。上传到本地的参考图会先保存，后续再接对象存储。</p>
+        <p class="hint compact">{% if is_zh %}第一版建议优先使用公网图片 URL。上传到本地的参考图会先保存，后续再接对象存储。{% else %}Start simple with public image URLs. Local uploads are saved now and can later be pushed to object storage.{% endif %}</p>
     </div>
 
     <form action="/jobs" method="post" enctype="multipart/form-data" class="job-form">
         <section class="form-section">
             <div class="form-section-head">
-                <h3>产品信息</h3>
-                <p>告诉系统你卖的是什么，以及这个产品解决什么问题。</p>
+                <h3>{% if is_zh %}产品信息{% else %}Product Info{% endif %}</h3>
+                <p>{% if is_zh %}告诉系统你卖的是什么，以及这个产品解决什么问题。{% else %}Tell the pipeline what product we are selling and what problem it solves.{% endif %}</p>
             </div>
             <div class="grid two">
-                <label>项目名称
-                    <input type="text" name="project_name" required placeholder="四月车库投放计划">
+                <label>{% if is_zh %}项目名称{% else %}Project Name{% endif %}
+                    <input type="text" name="project_name" required placeholder="{% if is_zh %}四月车库投放计划{% else %}April Garage Campaign{% endif %}">
                 </label>
-                <label>产品名称
-                    <input type="text" name="product_name" required placeholder="台式抛光轮套装">
+                <label>{% if is_zh %}产品名称{% else %}Product Name{% endif %}
+                    <input type="text" name="product_name" required placeholder="{% if is_zh %}台式抛光轮套装{% else %}Bench Polishing Wheel Kit{% endif %}">
                 </label>
             </div>
 
-            <label>Amazon 产品链接
+            <label>{% if is_zh %}Amazon 产品链接{% else %}Amazon Product URL{% endif %}
                 <input type="url" name="amazon_url" placeholder="https://www.amazon.com/...">
             </label>
 
-            <label>产品核心卖点
-                <textarea name="product_brief" rows="5" required placeholder="卖点、使用场景、材质、目标买家"></textarea>
+            <label>{% if is_zh %}产品核心卖点{% else %}Product Brief{% endif %}
+                <textarea name="product_brief" rows="5" required placeholder="{% if is_zh %}卖点、使用场景、材质、目标买家{% else %}Key selling points, use case, material, target buyer{% endif %}"></textarea>
             </label>
         </section>
 
         <section class="form-section">
             <div class="form-section-head">
-                <h3>视频设置</h3>
-                <p>选择本次生成任务的片段数量、时长和画面比例。</p>
+                <h3>{% if is_zh %}视频设置{% else %}Video Settings{% endif %}</h3>
+                <p>{% if is_zh %}选择本次生成任务的片段数量、时长和画面比例。{% else %}Choose the clip count, timing, and frame format for the generation run.{% endif %}</p>
             </div>
             <div class="grid three">
-                <label>视频类型
+                <label>{% if is_zh %}视频类型{% else %}Video Mode{% endif %}
                     <select name="video_mode">
                         <option value="shorts">shorts</option>
                         <option value="long_video">long_video</option>
                     </select>
                 </label>
-                <label>画面比例
+                <label>{% if is_zh %}画面比例{% else %}Ratio{% endif %}
                     <select name="ratio">
                         <option value="9:16">9:16</option>
                         <option value="16:9">16:9</option>
                     </select>
                 </label>
-                <label>单段时长
+                <label>{% if is_zh %}单段时长{% else %}Clip Duration{% endif %}
                     <select name="clip_duration">
                         <option value="5">5</option>
                         <option value="10">10</option>
@@ -88,7 +88,7 @@
             </div>
 
             <div class="grid three">
-                <label>片段数量
+                <label>{% if is_zh %}片段数量{% else %}Clip Count{% endif %}
                     <select name="clip_count">
                         <option value="1">1</option>
                         <option value="2" selected>2</option>
@@ -96,13 +96,13 @@
                         <option value="20">20</option>
                     </select>
                 </label>
-                <label>分辨率
+                <label>{% if is_zh %}分辨率{% else %}Resolution{% endif %}
                     <select name="resolution">
                         <option value="480p">480p</option>
                         <option value="720p" selected>720p</option>
                     </select>
                 </label>
-                <label>YouTube 可见性
+                <label>{% if is_zh %}YouTube 可见性{% else %}Privacy{% endif %}
                     <select name="privacy">
                         <option value="private" selected>private</option>
                         <option value="unlisted">unlisted</option>
@@ -114,15 +114,15 @@
 
         <section class="form-section">
             <div class="form-section-head">
-                <h3>YouTube 设置</h3>
-                <p>配置最终成片上传时使用的标题、描述和发布行为。</p>
+                <h3>{% if is_zh %}YouTube 设置{% else %}YouTube Settings{% endif %}</h3>
+                <p>{% if is_zh %}配置最终成片上传时使用的标题、描述和发布行为。{% else %}Optional publishing details for the final stitched render.{% endif %}</p>
             </div>
             <div class="grid two">
-                <label>YouTube 标题
-                    <input type="text" name="youtube_title" required placeholder="几分钟恢复金属光泽">
+                <label>{% if is_zh %}YouTube 标题{% else %}YouTube Title{% endif %}
+                    <input type="text" name="youtube_title" required placeholder="{% if is_zh %}几分钟恢复金属光泽{% else %}Restore metal shine in minutes{% endif %}">
                 </label>
-                <label>YouTube 描述
-                    <textarea name="youtube_description" rows="4" placeholder="填写发布描述、CTA 和关键词"></textarea>
+                <label>{% if is_zh %}YouTube 描述{% else %}YouTube Description{% endif %}
+                    <textarea name="youtube_description" rows="4" placeholder="{% if is_zh %}填写发布描述、CTA 和关键词{% else %}Write the publish description, CTA, and keywords{% endif %}"></textarea>
                 </label>
             </div>
 
@@ -130,15 +130,15 @@
                 <label class="checkbox">
                     <input type="checkbox" name="upload_to_youtube" value="true">
                     <span>
-                        <strong>上传最终视频</strong>
-                        <small>生成并拼接完成后，自动上传到 YouTube。</small>
+                        <strong>{% if is_zh %}上传最终视频{% else %}Upload final video{% endif %}</strong>
+                        <small>{% if is_zh %}生成并拼接完成后，自动上传到 YouTube。{% else %}Send the stitched result to YouTube after render.{% endif %}</small>
                     </span>
                 </label>
                 <label class="checkbox">
                     <input type="checkbox" name="stitch_final_video" value="true" checked>
                     <span>
-                        <strong>使用 FFmpeg 拼接</strong>
-                        <small>把多个片段合成为一个最终 MP4 文件。</small>
+                        <strong>{% if is_zh %}使用 FFmpeg 拼接{% else %}Stitch clips with FFmpeg{% endif %}</strong>
+                        <small>{% if is_zh %}把多个片段合成为一个最终 MP4 文件。{% else %}Create one final MP4 from generated clips.{% endif %}</small>
                     </span>
                 </label>
             </div>
@@ -146,23 +146,26 @@
 
         <section class="form-section">
             <div class="form-section-head">
-                <h3>参考图片</h3>
-                <p>Seedance 需要公网可访问图片 URL。本地上传图片会先保存，后续再接对象存储。</p>
+                <h3>{% if is_zh %}参考图片{% else %}Reference Images{% endif %}</h3>
+                <p>{% if is_zh %}Seedance 需要公网可访问图片 URL。本地上传图片会先保存，后续再接对象存储。{% else %}Seedance needs public image URLs. Uploaded files are stored for later object storage integration.{% endif %}</p>
             </div>
             <div class="grid two">
-                <label>参考图 URL
-                    <textarea name="reference_image_urls" rows="6" placeholder="每行一个公网图片 URL"></textarea>
+                <label>{% if is_zh %}参考图 URL{% else %}Reference Image URLs{% endif %}
+                    <textarea name="reference_image_urls" rows="6" placeholder="{% if is_zh %}每行一个公网图片 URL{% else %}One public image URL per line{% endif %}"></textarea>
                 </label>
 
-                <label>上传参考图
+                <label>{% if is_zh %}上传参考图{% else %}Reference Images Upload{% endif %}
                     <input type="file" name="reference_images" accept=".jpg,.jpeg,.png,.webp" multiple>
                 </label>
             </div>
 
             <div class="grid two notes-grid">
                 <div class="note">
-                    本地上传的参考图会先保存到服务器，但 Seedance 需要公网图片 URL。
-                    后续接入对象存储后，上传文件才能真正用于 `reference_image`。
+                    {% if is_zh %}
+                    本地上传的参考图会先保存到服务器，但 Seedance 需要公网图片 URL。后续接入对象存储后，上传文件才能真正用于 `reference_image`。
+                    {% else %}
+                    Local uploaded reference images are saved to the server, but Seedance needs public image URLs. Configure object storage later before uploaded files can be used as `reference_image`.
+                    {% endif %}
                 </div>
 
                 <div class="note warning">
@@ -172,8 +175,8 @@
         </section>
 
         <div class="form-actions">
-            <button class="btn primary" type="submit">启动视频任务</button>
-            <a class="btn ghost" href="/jobs">查看已有任务</a>
+            <button class="btn primary" type="submit">{% if is_zh %}启动视频任务{% else %}Launch Video Job{% endif %}</button>
+            <a class="btn ghost" href="/jobs?lang={{ lang }}">{% if is_zh %}查看已有任务{% else %}View Existing Jobs{% endif %}</a>
         </div>
     </form>
 </section>

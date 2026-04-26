@@ -1,18 +1,18 @@
 {% extends "base.html" %}
 
-{% block title %}任务 {{ job["id"] }} | ClipForge Tools{% endblock %}
+{% block title %}{% if is_zh %}任务{% else %}Job{% endif %} {{ job["id"] }} | ClipForge Tools{% endblock %}
 
 {% block content %}
 <section class="hero hero-compact">
     <div class="hero-copy">
-        <span class="eyebrow">任务详情</span>
-        <h1>任务 #{{ job["id"] }}</h1>
+        <span class="eyebrow">{% if is_zh %}任务详情{% else %}Job Detail{% endif %}</span>
+        <h1>{% if is_zh %}任务{% else %}Job{% endif %} #{{ job["id"] }}</h1>
         <p class="hero-text">{{ job["project_name"] }} / {{ job["product_name"] }}</p>
     </div>
     <aside class="hero-aside">
         <div class="hero-panel">
-            <h3>工作流状态</h3>
-            <p class="hint compact">当后台任务仍在运行时，这个页面会每 5 秒自动刷新一次状态。</p>
+            <h3>{% if is_zh %}工作流状态{% else %}Pipeline status{% endif %}</h3>
+            <p class="hint compact">{% if is_zh %}当后台任务仍在运行时，这个页面会每 5 秒自动刷新一次状态。{% else %}This page auto-refreshes every 5 seconds while the background task is active.{% endif %}</p>
         </div>
     </aside>
 </section>
@@ -21,30 +21,30 @@
     <div class="section-head">
         <div></div>
         <div class="actions">
-            <a class="btn ghost" href="/">返回首页</a>
-            <a class="btn ghost" href="/jobs">查看任务列表</a>
+            <a class="btn ghost" href="/?lang={{ lang }}">{% if is_zh %}返回首页{% else %}Back Home{% endif %}</a>
+            <a class="btn ghost" href="/jobs?lang={{ lang }}">{% if is_zh %}查看任务列表{% else %}View Jobs{% endif %}</a>
         </div>
     </div>
 
     <div class="grid three stats-grid">
         <div class="metric">
-            <span>状态</span>
+            <span>{% if is_zh %}状态{% else %}Status{% endif %}</span>
             <strong id="job-status">{{ job["status"] }}</strong>
         </div>
         <div class="metric">
-            <span>当前步骤</span>
+            <span>{% if is_zh %}当前步骤{% else %}Current Step{% endif %}</span>
             <strong id="job-step">{{ job["current_step"] or "-" }}</strong>
         </div>
         <div class="metric">
-            <span>总 Tokens</span>
+            <span>{% if is_zh %}总 Tokens{% else %}Total Tokens{% endif %}</span>
             <strong id="job-tokens">{{ job["total_tokens"] }}</strong>
         </div>
         <div class="metric">
-            <span>预估成本（CNY）</span>
+            <span>{% if is_zh %}预估成本（CNY）{% else %}Estimated Cost (CNY){% endif %}</span>
             <strong id="job-cost">{{ job["estimated_cost_cny"] }}</strong>
         </div>
         <div class="metric metric-wide">
-            <span>最终视频路径</span>
+            <span>{% if is_zh %}最终视频路径{% else %}Final Video Path{% endif %}</span>
             <strong id="job-final-path">{{ job["final_video_path"] or "-" }}</strong>
         </div>
         <div class="metric metric-wide">
@@ -57,7 +57,7 @@
         <div class="progress-bar">
             <div class="progress-bar-fill" id="progress-fill" style="width: 0%;"></div>
         </div>
-        <p class="hint" id="progress-text">Preparing progress...</p>
+        <p class="hint" id="progress-text">{% if is_zh %}正在准备进度信息...{% else %}Preparing progress...{% endif %}</p>
     </div>
 
     {% if job["uploaded_images_note"] %}
@@ -65,7 +65,11 @@
     {% endif %}
 
     <div class="note warning">
+        {% if is_zh %}
         受 YouTube Data API 限制影响，未经审核的 API 项目即使选择了 `unlisted` 或 `public`，最终上传结果也可能仍被强制设为 `private`。
+        {% else %}
+        Due to YouTube Data API restrictions, videos uploaded via `videos.insert` from unaudited API projects may still end up Private.
+        {% endif %}
     </div>
 
     {% if job["error_message"] %}
@@ -74,18 +78,18 @@
     <div class="note error hidden" id="job-error"></div>
     {% endif %}
 
-    <h2>视频片段</h2>
+    <h2>{% if is_zh %}视频片段{% else %}Clips{% endif %}</h2>
     <div class="table-wrap">
         <table id="clips-table">
             <thead>
                 <tr>
-                    <th>片段</th>
-                    <th>状态</th>
+                    <th>{% if is_zh %}片段{% else %}Clip{% endif %}</th>
+                    <th>{% if is_zh %}状态{% else %}Status{% endif %}</th>
                     <th>Seedance Task ID</th>
-                    <th>参考图</th>
-                    <th>本地路径</th>
+                    <th>{% if is_zh %}参考图{% else %}Reference Image{% endif %}</th>
+                    <th>{% if is_zh %}本地路径{% else %}Local Path{% endif %}</th>
                     <th>Tokens</th>
-                    <th>成本</th>
+                    <th>{% if is_zh %}成本{% else %}Cost{% endif %}</th>
                 </tr>
             </thead>
             <tbody>
@@ -109,11 +113,14 @@
     const jobId = {{ job["id"] }};
 
     function renderProgress(job, clips) {
+        const isZh = {{ "true" if is_zh else "false" }};
         const completed = clips.filter(item => item.status === "succeeded").length;
         const total = clips.length || 1;
         const percent = Math.round((completed / total) * 100);
         document.getElementById("progress-fill").style.width = `${percent}%`;
-        document.getElementById("progress-text").textContent = `已完成 ${completed}/${total} 个片段`;
+        document.getElementById("progress-text").textContent = isZh
+            ? `已完成 ${completed}/${total} 个片段`
+            : `${completed}/${total} clips completed`;
         document.getElementById("job-status").textContent = job.status;
         document.getElementById("job-step").textContent = job.current_step || "-";
         document.getElementById("job-tokens").textContent = job.total_tokens;

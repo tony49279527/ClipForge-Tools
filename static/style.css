@@ -513,6 +513,25 @@ tbody tr:hover td {
     background: rgba(24, 33, 43, 0.06);
 }
 
+.lang-switch {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(24, 33, 43, 0.06);
+    gap: 4px;
+}
+
+.lang-switch a {
+    padding: 8px 12px;
+    font-size: 0.88rem;
+}
+
+.lang-switch a.active {
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 6px 18px rgba(24, 33, 43, 0.08);
+}
+
 .form-actions {
     display: flex;
     align-items: center;

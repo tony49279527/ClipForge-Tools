@@ -1,40 +1,40 @@
 {% extends "base.html" %}
 
-{% block title %}任务列表 | ClipForge Tools{% endblock %}
+{% block title %}{% if is_zh %}任务列表{% else %}Jobs{% endif %} | ClipForge Tools{% endblock %}
 
 {% block content %}
 <section class="hero hero-compact">
     <div class="hero-copy">
-        <span class="eyebrow">任务队列</span>
-        <h1>把所有视频任务放在一个地方看清楚。</h1>
-        <p class="hero-text">统一查看任务状态、当前执行步骤和更新时间，随时进入详情页跟进每一次生成。</p>
+        <span class="eyebrow">{% if is_zh %}任务队列{% else %}Job Queue{% endif %}</span>
+        <h1>{% if is_zh %}把所有视频任务放在一个地方看清楚。{% else %}Track every render run in one place.{% endif %}</h1>
+        <p class="hero-text">{% if is_zh %}统一查看任务状态、当前执行步骤和更新时间，随时进入详情页跟进每一次生成。{% else %}Monitor status, inspect current step, and jump back into any job detail page without digging through logs.{% endif %}</p>
     </div>
 </section>
 
 <section class="card">
     <div class="section-head">
         <div>
-            <span class="eyebrow">全部任务</span>
-            <h2>最近的视频任务</h2>
+            <span class="eyebrow">{% if is_zh %}全部任务{% else %}All Jobs{% endif %}</span>
+            <h2>{% if is_zh %}最近的视频任务{% else %}Recent video tasks{% endif %}</h2>
         </div>
-        <a class="btn ghost" href="/">新建任务</a>
+        <a class="btn ghost" href="/?lang={{ lang }}">{% if is_zh %}新建任务{% else %}Create New Job{% endif %}</a>
     </div>
     <div class="table-wrap">
         <table>
             <thead>
                 <tr>
                     <th>ID</th>
-                    <th>项目</th>
-                    <th>产品</th>
-                    <th>状态</th>
-                    <th>当前步骤</th>
-                    <th>更新时间</th>
+                    <th>{% if is_zh %}项目{% else %}Project{% endif %}</th>
+                    <th>{% if is_zh %}产品{% else %}Product{% endif %}</th>
+                    <th>{% if is_zh %}状态{% else %}Status{% endif %}</th>
+                    <th>{% if is_zh %}当前步骤{% else %}Step{% endif %}</th>
+                    <th>{% if is_zh %}更新时间{% else %}Updated{% endif %}</th>
                 </tr>
             </thead>
             <tbody>
                 {% for job in jobs %}
                 <tr>
-                    <td><a href="/jobs/{{ job['id'] }}">#{{ job["id"] }}</a></td>
+                    <td><a href="/jobs/{{ job['id'] }}?lang={{ lang }}">#{{ job["id"] }}</a></td>
                     <td>{{ job["project_name"] }}</td>
                     <td>{{ job["product_name"] }}</td>
                     <td><span class="status {{ job['status'] }}">{{ job["status"] }}</span></td>
@@ -43,7 +43,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="6">还没有任务。可以先从“新建任务”页面创建第一条视频生成任务。</td>
+                    <td colspan="6">{% if is_zh %}还没有任务。可以先从“新建任务”页面创建第一条视频生成任务。{% else %}No jobs yet. Create the first product video run from the New Job page.{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>

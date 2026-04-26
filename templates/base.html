@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{ 'zh-CN' if is_zh else 'en' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,11 +16,21 @@
         <div class="container">
             <div class="brand-wrap">
                 <a class="brand" href="/">ClipForge Tools</a>
-                <p class="subtitle">面向 Amazon 与 YouTube 的 AI 工具视频生成平台</p>
+                <p class="subtitle">
+                    {% if is_zh %}
+                    面向 Amazon 与 YouTube 的 AI 工具视频生成平台
+                    {% else %}
+                    AI Tool Video Generator for Amazon &amp; YouTube
+                    {% endif %}
+                </p>
             </div>
             <nav class="nav">
-                <a href="/">新建任务</a>
-                <a href="/jobs">任务列表</a>
+                <a href="/?lang={{ lang }}">{% if is_zh %}新建任务{% else %}New Job{% endif %}</a>
+                <a href="/jobs?lang={{ lang }}">{% if is_zh %}任务列表{% else %}Jobs{% endif %}</a>
+                <div class="lang-switch">
+                    <a class="{% if not is_zh %}active{% endif %}" href="{{ lang_switch_en }}">EN</a>
+                    <a class="{% if is_zh %}active{% endif %}" href="{{ lang_switch_zh }}">中文</a>
+                </div>
             </nav>
         </div>
     </header>

@@ -27,6 +27,19 @@
     </aside>
 </section>
 
+<section class="sample-strip">
+    <div class="sample-card">
+        <div>
+            <span class="eyebrow">{% if is_zh %}测试案例{% else %}Sample Job{% endif %}</span>
+            <h3>{% if is_zh %}先用一套现成案例跑通整个流程{% else %}Load a ready-made case to test the full flow{% endif %}</h3>
+            <p class="hint">{% if is_zh %}适合先验证表单、任务创建、片段生成和 YouTube 上传流程是否正常。{% else %}Useful for quickly validating the form, job creation, clip generation, and YouTube upload flow.{% endif %}</p>
+        </div>
+        <button type="button" class="btn ghost sample-load-btn" id="load-sample-job">
+            {% if is_zh %}载入测试案例{% else %}Load Sample{% endif %}
+        </button>
+    </div>
+</section>
+
 <section class="card form-shell">
     <div class="section-head form-head">
         <div>
@@ -208,4 +221,52 @@
         </div>
     </form>
 </section>
+
+<script>
+    const loadSampleButton = document.getElementById("load-sample-job");
+    if (loadSampleButton) {
+        loadSampleButton.addEventListener("click", () => {
+            const fields = {
+                project_name: "RV Hitch Polish Campaign",
+                product_name: "Cotton Polishing Wheel Kit",
+                amazon_url: "https://www.amazon.com/dp/B0TEST12345",
+                product_brief: "6-inch cotton polishing wheel kit for bench grinder use. Designed for aluminum, brass, stainless steel, trailer hitch balls, and oxidized hardware. Target users are Amazon buyers in garage DIY, automotive restoration, and RV maintenance.",
+                youtube_title: "Restore RV Hitch Shine with a Cotton Polishing Wheel Kit",
+                youtube_description: "This demo shows how a cotton polishing wheel kit can restore shine on RV hitch balls, aluminum parts, and garage hardware. Product link in description. Great for automotive restoration, DIY polishing, and RV maintenance.",
+                reference_image_urls: "https://images.unsplash.com/photo-1503376780353-7e6692767b70\nhttps://images.unsplash.com/photo-1517524206127-48bbd363f3d7",
+            };
+
+            Object.entries(fields).forEach(([name, value]) => {
+                const field = document.querySelector(`[name="${name}"]`);
+                if (field) {
+                    field.value = value;
+                }
+            });
+
+            const setSelect = (name, value) => {
+                const field = document.querySelector(`[name="${name}"]`);
+                if (field) {
+                    field.value = value;
+                }
+            };
+
+            setSelect("video_mode", "shorts");
+            setSelect("ratio", "9:16");
+            setSelect("clip_duration", "5");
+            setSelect("clip_count", "2");
+            setSelect("resolution", "720p");
+            setSelect("privacy", "unlisted");
+
+            const stitchCheckbox = document.querySelector('[name="stitch_final_video"]');
+            if (stitchCheckbox) {
+                stitchCheckbox.checked = true;
+            }
+
+            const uploadCheckbox = document.querySelector('[name="upload_to_youtube"]');
+            if (uploadCheckbox) {
+                uploadCheckbox.checked = false;
+            }
+        });
+    }
+</script>
 {% endblock %}

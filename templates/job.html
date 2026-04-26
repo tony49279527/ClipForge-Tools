@@ -3,25 +3,54 @@
 {% block title %}Job {{ job["id"] }} | ClipForge Tools{% endblock %}
 
 {% block content %}
+<section class="hero hero-compact">
+    <div class="hero-copy">
+        <span class="eyebrow">Job Detail</span>
+        <h1>Job #{{ job["id"] }}</h1>
+        <p class="hero-text">{{ job["project_name"] }} / {{ job["product_name"] }}</p>
+    </div>
+    <aside class="hero-aside">
+        <div class="hero-panel">
+            <h3>Pipeline status</h3>
+            <p class="hint compact">This page auto-refreshes every 5 seconds while the background task is active.</p>
+        </div>
+    </aside>
+</section>
+
 <section class="card">
     <div class="section-head">
-        <div>
-            <h1>Job #{{ job["id"] }}</h1>
-            <p class="hint">{{ job["project_name"] }} / {{ job["product_name"] }}</p>
-        </div>
+        <div></div>
         <div class="actions">
-            <a class="btn" href="/">Back Home</a>
-            <a class="btn" href="/jobs">View Jobs</a>
+            <a class="btn ghost" href="/">Back Home</a>
+            <a class="btn ghost" href="/jobs">View Jobs</a>
         </div>
     </div>
 
-    <div class="grid two">
-        <div class="metric"><span>Status</span><strong id="job-status">{{ job["status"] }}</strong></div>
-        <div class="metric"><span>Current Step</span><strong id="job-step">{{ job["current_step"] or "-" }}</strong></div>
-        <div class="metric"><span>Total Tokens</span><strong id="job-tokens">{{ job["total_tokens"] }}</strong></div>
-        <div class="metric"><span>Estimated Cost (CNY)</span><strong id="job-cost">{{ job["estimated_cost_cny"] }}</strong></div>
-        <div class="metric"><span>Final Video Path</span><strong id="job-final-path">{{ job["final_video_path"] or "-" }}</strong></div>
-        <div class="metric"><span>YouTube URL</span><strong id="job-youtube-url">{% if job["youtube_url"] %}<a href="{{ job['youtube_url'] }}" target="_blank">{{ job["youtube_url"] }}</a>{% else %}-{% endif %}</strong></div>
+    <div class="grid three stats-grid">
+        <div class="metric">
+            <span>Status</span>
+            <strong id="job-status">{{ job["status"] }}</strong>
+        </div>
+        <div class="metric">
+            <span>Current Step</span>
+            <strong id="job-step">{{ job["current_step"] or "-" }}</strong>
+        </div>
+        <div class="metric">
+            <span>Total Tokens</span>
+            <strong id="job-tokens">{{ job["total_tokens"] }}</strong>
+        </div>
+        <div class="metric">
+            <span>Estimated Cost (CNY)</span>
+            <strong id="job-cost">{{ job["estimated_cost_cny"] }}</strong>
+        </div>
+        <div class="metric metric-wide">
+            <span>Final Video Path</span>
+            <strong id="job-final-path">{{ job["final_video_path"] or "-" }}</strong>
+        </div>
+        <div class="metric metric-wide">
+            <span>YouTube URL</span>
+            <strong id="job-youtube-url">{% if job["youtube_url"] %}<a href="{{ job['youtube_url'] }}" target="_blank">{{ job["youtube_url"] }}</a>{% else %}-{% endif %}</strong>
+        </div>
     </div>
 
     <div class="progress-wrap">

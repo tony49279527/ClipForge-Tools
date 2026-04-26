@@ -3,114 +3,178 @@
 {% block title %}New Job | ClipForge Tools{% endblock %}
 
 {% block content %}
-<section class="card">
-    <h1>New Video Job</h1>
-    <p class="hint">Build product videos for hardware tools, automotive tools, RV tools, and Amazon sellers.</p>
+<section class="hero">
+    <div class="hero-copy">
+        <span class="eyebrow">Clip-Based Video Pipeline</span>
+        <h1>Turn tool listings into polished demo videos.</h1>
+        <p class="hero-text">Built for Amazon sellers in hardware, auto repair, RV accessories, and garage gear. Generate short Seedance clips, stitch them with FFmpeg, and publish to YouTube from one control panel.</p>
+        <div class="hero-pills">
+            <span>Shorts + long-form workflows</span>
+            <span>FFmpeg stitching</span>
+            <span>YouTube publish-ready</span>
+        </div>
+    </div>
+    <aside class="hero-aside">
+        <div class="hero-panel">
+            <h3>What this flow handles</h3>
+            <ul class="feature-list">
+                <li>Prompt sequencing for 1, 2, 4, or 20 clips</li>
+                <li>Reference image URL mapping per clip</li>
+                <li>Download, stitch, and track token cost</li>
+                <li>Optional YouTube upload after final render</li>
+            </ul>
+        </div>
+    </aside>
+</section>
+
+<section class="card form-shell">
+    <div class="section-head form-head">
+        <div>
+            <span class="eyebrow">New Job</span>
+            <h2>Configure a product video run</h2>
+        </div>
+        <p class="hint compact">Start simple with public image URLs. Local uploads are saved now and can later be pushed to object storage.</p>
+    </div>
+
     <form action="/jobs" method="post" enctype="multipart/form-data" class="job-form">
-        <h2>Product Info</h2>
-        <div class="grid two">
-            <label>Project Name
-                <input type="text" name="project_name" required>
+        <section class="form-section">
+            <div class="form-section-head">
+                <h3>Product Info</h3>
+                <p>Tell the pipeline what product we are selling and what problem it solves.</p>
+            </div>
+            <div class="grid two">
+                <label>Project Name
+                    <input type="text" name="project_name" required placeholder="April Garage Campaign">
+                </label>
+                <label>Product Name
+                    <input type="text" name="product_name" required placeholder="Bench Polishing Wheel Kit">
+                </label>
+            </div>
+
+            <label>Amazon Product URL
+                <input type="url" name="amazon_url" placeholder="https://www.amazon.com/...">
             </label>
-            <label>Product Name
-                <input type="text" name="product_name" required>
+
+            <label>Product Brief
+                <textarea name="product_brief" rows="5" required placeholder="Key selling points, use case, material, target buyer"></textarea>
             </label>
+        </section>
+
+        <section class="form-section">
+            <div class="form-section-head">
+                <h3>Video Settings</h3>
+                <p>Choose the clip count, timing, and frame format for the generation run.</p>
+            </div>
+            <div class="grid three">
+                <label>Video Mode
+                    <select name="video_mode">
+                        <option value="shorts">shorts</option>
+                        <option value="long_video">long_video</option>
+                    </select>
+                </label>
+                <label>Ratio
+                    <select name="ratio">
+                        <option value="9:16">9:16</option>
+                        <option value="16:9">16:9</option>
+                    </select>
+                </label>
+                <label>Clip Duration
+                    <select name="clip_duration">
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                    </select>
+                </label>
+            </div>
+
+            <div class="grid three">
+                <label>Clip Count
+                    <select name="clip_count">
+                        <option value="1">1</option>
+                        <option value="2" selected>2</option>
+                        <option value="4">4</option>
+                        <option value="20">20</option>
+                    </select>
+                </label>
+                <label>Resolution
+                    <select name="resolution">
+                        <option value="480p">480p</option>
+                        <option value="720p" selected>720p</option>
+                    </select>
+                </label>
+                <label>Privacy
+                    <select name="privacy">
+                        <option value="private" selected>private</option>
+                        <option value="unlisted">unlisted</option>
+                        <option value="public">public</option>
+                    </select>
+                </label>
+            </div>
+        </section>
+
+        <section class="form-section">
+            <div class="form-section-head">
+                <h3>YouTube Settings</h3>
+                <p>Optional publishing details for the final stitched render.</p>
+            </div>
+            <div class="grid two">
+                <label>YouTube Title
+                    <input type="text" name="youtube_title" required placeholder="Restore metal shine in minutes">
+                </label>
+                <label>YouTube Description
+                    <textarea name="youtube_description" rows="4" placeholder="Write the publish description, CTA, and keywords"></textarea>
+                </label>
+            </div>
+
+            <div class="grid two checks">
+                <label class="checkbox">
+                    <input type="checkbox" name="upload_to_youtube" value="true">
+                    <span>
+                        <strong>Upload final video</strong>
+                        <small>Send the stitched result to YouTube after render.</small>
+                    </span>
+                </label>
+                <label class="checkbox">
+                    <input type="checkbox" name="stitch_final_video" value="true" checked>
+                    <span>
+                        <strong>Stitch clips with FFmpeg</strong>
+                        <small>Create one final MP4 from generated clips.</small>
+                    </span>
+                </label>
+            </div>
+        </section>
+
+        <section class="form-section">
+            <div class="form-section-head">
+                <h3>Reference Images</h3>
+                <p>Seedance needs public image URLs. Uploaded files are stored for later object storage integration.</p>
+            </div>
+            <div class="grid two">
+                <label>Reference Image URLs
+                    <textarea name="reference_image_urls" rows="6" placeholder="One public image URL per line"></textarea>
+                </label>
+
+                <label>Reference Images Upload
+                    <input type="file" name="reference_images" accept=".jpg,.jpeg,.png,.webp" multiple>
+                </label>
+            </div>
+
+            <div class="grid two notes-grid">
+                <div class="note">
+                    Local uploaded reference images are saved to the server, but Seedance needs public image URLs.
+                    Configure object storage later before uploaded files can be used as `reference_image`.
+                </div>
+
+                <div class="note warning">
+                    {{ youtube_notice }}
+                </div>
+            </div>
+        </section>
+
+        <div class="form-actions">
+            <button class="btn primary" type="submit">Launch Video Job</button>
+            <a class="btn ghost" href="/jobs">View Existing Jobs</a>
         </div>
-
-        <label>Amazon Product URL
-            <input type="url" name="amazon_url" placeholder="https://www.amazon.com/...">
-        </label>
-
-        <label>Product Brief
-            <textarea name="product_brief" rows="4" required placeholder="Key selling points, use case, material, target buyer"></textarea>
-        </label>
-
-        <h2>Video Settings</h2>
-        <div class="grid three">
-            <label>Video Mode
-                <select name="video_mode">
-                    <option value="shorts">shorts</option>
-                    <option value="long_video">long_video</option>
-                </select>
-            </label>
-            <label>Ratio
-                <select name="ratio">
-                    <option value="9:16">9:16</option>
-                    <option value="16:9">16:9</option>
-                </select>
-            </label>
-            <label>Clip Duration
-                <select name="clip_duration">
-                    <option value="5">5</option>
-                    <option value="10">10</option>
-                    <option value="15">15</option>
-                </select>
-            </label>
-        </div>
-
-        <div class="grid three">
-            <label>Clip Count
-                <select name="clip_count">
-                    <option value="1">1</option>
-                    <option value="2" selected>2</option>
-                    <option value="4">4</option>
-                    <option value="20">20</option>
-                </select>
-            </label>
-            <label>Resolution
-                <select name="resolution">
-                    <option value="480p">480p</option>
-                    <option value="720p" selected>720p</option>
-                </select>
-            </label>
-            <label>Privacy
-                <select name="privacy">
-                    <option value="private" selected>private</option>
-                    <option value="unlisted">unlisted</option>
-                    <option value="public">public</option>
-                </select>
-            </label>
-        </div>
-
-        <h2>YouTube Settings</h2>
-        <label>YouTube Title
-            <input type="text" name="youtube_title" required>
-        </label>
-
-        <label>YouTube Description
-            <textarea name="youtube_description" rows="5"></textarea>
-        </label>
-
-        <div class="grid two checks">
-            <label class="checkbox">
-                <input type="checkbox" name="upload_to_youtube" value="true">
-                Upload final video to YouTube
-            </label>
-            <label class="checkbox">
-                <input type="checkbox" name="stitch_final_video" value="true" checked>
-                Stitch clips into final video
-            </label>
-        </div>
-
-        <h2>Reference Images</h2>
-        <label>Reference Image URLs
-            <textarea name="reference_image_urls" rows="5" placeholder="One public image URL per line"></textarea>
-        </label>
-
-        <label>Reference Images Upload
-            <input type="file" name="reference_images" accept=".jpg,.jpeg,.png,.webp" multiple>
-        </label>
-
-        <div class="note">
-            Local uploaded reference images are saved to the server, but Seedance needs public image URLs.
-            Configure object storage later before uploaded files can be used as `reference_image`.
-        </div>
-
-        <div class="note warning">
-            {{ youtube_notice }}
-        </div>
-
-        <button class="btn primary" type="submit">Submit Job</button>
     </form>
 </section>
 {% endblock %}

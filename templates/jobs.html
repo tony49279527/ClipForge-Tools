@@ -3,10 +3,21 @@
 {% block title %}Jobs | ClipForge Tools{% endblock %}
 
 {% block content %}
+<section class="hero hero-compact">
+    <div class="hero-copy">
+        <span class="eyebrow">Job Queue</span>
+        <h1>Track every render run in one place.</h1>
+        <p class="hero-text">Monitor status, inspect current step, and jump back into any job detail page without digging through logs.</p>
+    </div>
+</section>
+
 <section class="card">
     <div class="section-head">
-        <h1>All Jobs</h1>
-        <a class="btn" href="/">Create New Job</a>
+        <div>
+            <span class="eyebrow">All Jobs</span>
+            <h2>Recent video tasks</h2>
+        </div>
+        <a class="btn ghost" href="/">Create New Job</a>
     </div>
     <div class="table-wrap">
         <table>
@@ -32,7 +43,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="6">No jobs yet.</td>
+                    <td colspan="6">No jobs yet. Create the first product video run from the New Job page.</td>
                 </tr>
                 {% endfor %}
             </tbody>

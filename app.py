@@ -34,8 +34,8 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
 def resolve_lang(request: Request) -> str:
-    lang = request.query_params.get("lang", "en").lower()
-    return lang if lang in {"en", "zh"} else "en"
+    lang = request.query_params.get("lang", "zh").lower()
+    return lang if lang in {"en", "zh"} else "zh"
 
 
 def build_common_context(request: Request) -> dict:
@@ -48,6 +48,7 @@ def build_common_context(request: Request) -> dict:
         "lang_switch_en": str(request.url.include_query_params(lang="en")),
         "lang_switch_zh": str(request.url.include_query_params(lang="zh")),
         "youtube_accounts": youtube_accounts,
+        "has_youtube_accounts": len(youtube_accounts) > 0,
     }
 
 

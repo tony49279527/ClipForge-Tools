@@ -30,6 +30,7 @@ Notes:
 - A job only fails at the YouTube upload step if upload is requested and YouTube credentials are unavailable.
 - `youtube_token.json` should be generated locally first, then mounted into Cloud Run using Secret Manager or volumes.
 - For multi-account switching, the app can load per-account credentials from `YOUTUBE_ACCOUNTS_DIR`.
+- The UI defaults to Chinese. Users can switch to English from the top navigation.
 
 ## Multi-Account YouTube Upload
 

@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}Job {{ job["id"] }} | ClipForge Tools{% endblock %}
+
+{% block content %}
+<section class="card">
+    <div class="section-head">
+        <div>
+            <h1>Job #{{ job["id"] }}</h1>
+            <p class="hint">{{ job["project_name"] }} / {{ job["product_name"] }}</p>
+        </div>
+        <div class="actions">
+            <a class="btn" href="/">Back Home</a>
+            <a class="btn" href="/jobs">View Jobs</a>
+        </div>
+    </div>
+
+    <div class="grid two">
+        <div class="metric"><span>Status</span><strong id="job-status">{{ job["status"] }}</strong></div>
+        <div class="metric"><span>Current Step</span><strong id="job-step">{{ job["current_step"] or "-" }}</strong></div>
+        <div class="metric"><span>Total Tokens</span><strong id="job-tokens">{{ job["total_tokens"] }}</strong></div>
+        <div class="metric"><span>Estimated Cost (CNY)</span><strong id="job-cost">{{ job["estimated_cost_cny"] }}</strong></div>
+        <div class="metric"><span>Final Video Path</span><strong id="job-final-path">{{ job["final_video_path"] or "-" }}</strong></div>
+        <div class="metric"><span>YouTube URL</span><strong id="job-youtube-url">{% if job["youtube_url"] %}<a href="{{ job['youtube_url'] }}" target="_blank">{{ job["youtube_url"] }}</a>{% else %}-{% endif %}</strong></div>
+    </div>
+
+    <div class="progress-wrap">
+        <div class="progress-bar">
+            <div class="progress-bar-fill" id="progress-fill" style="width: 0%;"></div>
+        </div>
+        <p class="hint" id="progress-text">Preparing progress...</p>
+    </div>
+
+    {% if job["uploaded_images_note"] %}
+    <div class="note">{{ job["uploaded_images_note"] }}</div>
+    {% endif %}
+
+    <div class="note warning">
+        Due to YouTube Data API restrictions, videos uploaded via `videos.insert` from unaudited API projects may still end up Private.
+    </div>
+
+    {% if job["error_message"] %}
+    <div class="note error" id="job-error">{{ job["error_message"] }}</div>
+    {% else %}
+    <div class="note error hidden" id="job-error"></div>
+    {% endif %}
+
+    <h2>Clips</h2>
+    <div class="table-wrap">
+        <table id="clips-table">
+            <thead>
+                <tr>
+                    <th>Clip</th>
+                    <th>Status</th>
+                    <th>Seedance Task ID</th>
+                    <th>Reference Image</th>
+                    <th>Local Path</th>
+                    <th>Tokens</th>
+                    <th>Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for clip in clips %}
+                <tr>
+                    <td>{{ clip["clip_index"] }}</td>
+                    <td>{{ clip["status"] }}</td>
+                    <td>{{ clip["seedance_task_id"] or "-" }}</td>
+                    <td>{{ clip["reference_image_url"] or "-" }}</td>
+                    <td>{{ clip["local_path"] or "-" }}</td>
+                    <td>{{ clip["tokens"] }}</td>
+                    <td>{{ clip["estimated_cost_cny"] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<script>
+    const jobId = {{ job["id"] }};
+
+    function renderProgress(job, clips) {
+        const completed = clips.filter(item => item.status === "succeeded").length;
+        const total = clips.length || 1;
+        const percent = Math.round((completed / total) * 100);
+        document.getElementById("progress-fill").style.width = `${percent}%`;
+        document.getElementById("progress-text").textContent = `${completed}/${total} clips completed`;
+        document.getElementById("job-status").textContent = job.status;
+        document.getElementById("job-step").textContent = job.current_step || "-";
+        document.getElementById("job-tokens").textContent = job.total_tokens;
+        document.getElementById("job-cost").textContent = job.estimated_cost_cny;
+        document.getElementById("job-final-path").textContent = job.final_video_path || "-";
+
+        const youtubeNode = document.getElementById("job-youtube-url");
+        if (job.youtube_url) {
+            youtubeNode.innerHTML = `<a href="${job.youtube_url}" target="_blank">${job.youtube_url}</a>`;
+        } else {
+            youtubeNode.textContent = "-";
+        }
+
+        const errorNode = document.getElementById("job-error");
+        if (job.error_message) {
+            errorNode.textContent = job.error_message;
+            errorNode.classList.remove("hidden");
+        } else {
+            errorNode.textContent = "";
+            errorNode.classList.add("hidden");
+        }
+
+        const tbody = document.querySelector("#clips-table tbody");
+        tbody.innerHTML = clips.map(clip => `
+            <tr>
+                <td>${clip.clip_index}</td>
+                <td>${clip.status}</td>
+                <td>${clip.seedance_task_id || "-"}</td>
+                <td>${clip.reference_image_url || "-"}</td>
+                <td>${clip.local_path || "-"}</td>
+                <td>${clip.tokens}</td>
+                <td>${clip.estimated_cost_cny}</td>
+            </tr>
+        `).join("");
+    }
+
+    async function refreshStatus() {
+        const response = await fetch(`/jobs/${jobId}/status`);
+        const data = await response.json();
+        renderProgress(data.job, data.clips);
+        if (!["succeeded", "failed"].includes(data.job.status)) {
+            window.setTimeout(refreshStatus, 5000);
+        }
+    }
+
+    refreshStatus();
+</script>
+{% endblock %}

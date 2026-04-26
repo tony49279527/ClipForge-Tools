@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}New Job | ClipForge Tools{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>New Video Job</h1>
+    <p class="hint">Build product videos for hardware tools, automotive tools, RV tools, and Amazon sellers.</p>
+    <form action="/jobs" method="post" enctype="multipart/form-data" class="job-form">
+        <h2>Product Info</h2>
+        <div class="grid two">
+            <label>Project Name
+                <input type="text" name="project_name" required>
+            </label>
+            <label>Product Name
+                <input type="text" name="product_name" required>
+            </label>
+        </div>
+
+        <label>Amazon Product URL
+            <input type="url" name="amazon_url" placeholder="https://www.amazon.com/...">
+        </label>
+
+        <label>Product Brief
+            <textarea name="product_brief" rows="4" required placeholder="Key selling points, use case, material, target buyer"></textarea>
+        </label>
+
+        <h2>Video Settings</h2>
+        <div class="grid three">
+            <label>Video Mode
+                <select name="video_mode">
+                    <option value="shorts">shorts</option>
+                    <option value="long_video">long_video</option>
+                </select>
+            </label>
+            <label>Ratio
+                <select name="ratio">
+                    <option value="9:16">9:16</option>
+                    <option value="16:9">16:9</option>
+                </select>
+            </label>
+            <label>Clip Duration
+                <select name="clip_duration">
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                    <option value="15">15</option>
+                </select>
+            </label>
+        </div>
+
+        <div class="grid three">
+            <label>Clip Count
+                <select name="clip_count">
+                    <option value="1">1</option>
+                    <option value="2" selected>2</option>
+                    <option value="4">4</option>
+                    <option value="20">20</option>
+                </select>
+            </label>
+            <label>Resolution
+                <select name="resolution">
+                    <option value="480p">480p</option>
+                    <option value="720p" selected>720p</option>
+                </select>
+            </label>
+            <label>Privacy
+                <select name="privacy">
+                    <option value="private" selected>private</option>
+                    <option value="unlisted">unlisted</option>
+                    <option value="public">public</option>
+                </select>
+            </label>
+        </div>
+
+        <h2>YouTube Settings</h2>
+        <label>YouTube Title
+            <input type="text" name="youtube_title" required>
+        </label>
+
+        <label>YouTube Description
+            <textarea name="youtube_description" rows="5"></textarea>
+        </label>
+
+        <div class="grid two checks">
+            <label class="checkbox">
+                <input type="checkbox" name="upload_to_youtube" value="true">
+                Upload final video to YouTube
+            </label>
+            <label class="checkbox">
+                <input type="checkbox" name="stitch_final_video" value="true" checked>
+                Stitch clips into final video
+            </label>
+        </div>
+
+        <h2>Reference Images</h2>
+        <label>Reference Image URLs
+            <textarea name="reference_image_urls" rows="5" placeholder="One public image URL per line"></textarea>
+        </label>
+
+        <label>Reference Images Upload
+            <input type="file" name="reference_images" accept=".jpg,.jpeg,.png,.webp" multiple>
+        </label>
+
+        <div class="note">
+            Local uploaded reference images are saved to the server, but Seedance needs public image URLs.
+            Configure object storage later before uploaded files can be used as `reference_image`.
+        </div>
+
+        <div class="note warning">
+            {{ youtube_notice }}
+        </div>
+
+        <button class="btn primary" type="submit">Submit Job</button>
+    </form>
+</section>
+{% endblock %}

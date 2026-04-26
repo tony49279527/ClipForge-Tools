@@ -1,0 +1,14 @@
+.git
+__pycache__/
+*.pyc
+.env
+data/
+outputs/
+uploads/
+*.mp4
+*.mov
+*.webm
+client_secret.json
+youtube_token.json
+*.sqlite
+*.db

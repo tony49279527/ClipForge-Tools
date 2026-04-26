@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Jobs | ClipForge Tools{% endblock %}
+
+{% block content %}
+<section class="card">
+    <div class="section-head">
+        <h1>All Jobs</h1>
+        <a class="btn" href="/">Create New Job</a>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Project</th>
+                    <th>Product</th>
+                    <th>Status</th>
+                    <th>Step</th>
+                    <th>Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs %}
+                <tr>
+                    <td><a href="/jobs/{{ job['id'] }}">#{{ job["id"] }}</a></td>
+                    <td>{{ job["project_name"] }}</td>
+                    <td>{{ job["product_name"] }}</td>
+                    <td><span class="status {{ job['status'] }}">{{ job["status"] }}</span></td>
+                    <td>{{ job["current_step"] or "-" }}</td>
+                    <td>{{ job["updated_at"] }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6">No jobs yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

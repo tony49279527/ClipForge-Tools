@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Local runtime data
+clipforge_tools/data/
+clipforge_tools/uploads/
+clipforge_tools/outputs/
+
+# Secrets
+clipforge_tools/client_secret.json
+clipforge_tools/youtube_token.json
+

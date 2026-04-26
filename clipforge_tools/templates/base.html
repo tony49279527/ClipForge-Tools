@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ClipForge Tools{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container">
+            <div>
+                <a class="brand" href="/">ClipForge Tools</a>
+                <p class="subtitle">AI video generation and publishing workflow for tool sellers</p>
+            </div>
+            <nav class="nav">
+                <a href="/">New Job</a>
+                <a href="/jobs">Jobs</a>
+            </nav>
+        </div>
+    </header>
+    <main class="container page">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

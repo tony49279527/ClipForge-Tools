@@ -259,6 +259,10 @@ p {
     align-items: start;
 }
 
+.notes-grid .note {
+    height: 100%;
+}
+
 .form-section {
     padding-top: 24px;
     border-top: 1px solid var(--line);

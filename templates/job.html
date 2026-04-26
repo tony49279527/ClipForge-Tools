@@ -43,6 +43,10 @@
             <span>{% if is_zh %}预估成本（CNY）{% else %}Estimated Cost (CNY){% endif %}</span>
             <strong id="job-cost">{{ job["estimated_cost_cny"] }}</strong>
         </div>
+        <div class="metric">
+            <span>{% if is_zh %}上传账号{% else %}Upload Account{% endif %}</span>
+            <strong>{{ job["youtube_account_id"] or ("未选择" if is_zh else "Not selected") }}</strong>
+        </div>
         <div class="metric metric-wide">
             <span>{% if is_zh %}最终视频路径{% else %}Final Video Path{% endif %}</span>
             <strong id="job-final-path">{{ job["final_video_path"] or "-" }}</strong>

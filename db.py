@@ -39,6 +39,7 @@ def init_db() -> None:
             youtube_title TEXT NOT NULL,
             youtube_description TEXT,
             privacy TEXT NOT NULL,
+            youtube_account_id TEXT,
             upload_to_youtube INTEGER DEFAULT 0,
             stitch_final_video INTEGER DEFAULT 1,
             reference_image_urls_json TEXT,
@@ -57,6 +58,7 @@ def init_db() -> None:
     )
     ensure_column(cur, "jobs", "upload_to_youtube", "INTEGER DEFAULT 0")
     ensure_column(cur, "jobs", "stitch_final_video", "INTEGER DEFAULT 1")
+    ensure_column(cur, "jobs", "youtube_account_id", "TEXT")
     ensure_column(cur, "jobs", "reference_image_urls_json", "TEXT")
     ensure_column(cur, "jobs", "uploaded_images_note", "TEXT")
     cur.execute(
@@ -98,7 +100,7 @@ def create_job(payload: Dict[str, Any]) -> int:
         """
         INSERT INTO jobs (
             project_name, product_name, amazon_url, product_brief, video_mode,
-            ratio, clip_duration, clip_count, resolution, youtube_title,
+            ratio, clip_duration, clip_count, resolution, youtube_title, youtube_account_id,
             youtube_description, privacy, upload_to_youtube, stitch_final_video,
             reference_image_urls_json, status, current_step, final_video_path,
             youtube_url, total_tokens, estimated_cost_cny, error_message,
@@ -116,6 +118,7 @@ def create_job(payload: Dict[str, Any]) -> int:
             payload["clip_count"],
             payload["resolution"],
             payload["youtube_title"],
+            payload.get("youtube_account_id", ""),
             payload.get("youtube_description", ""),
             payload["privacy"],
             payload.get("upload_to_youtube", 0),

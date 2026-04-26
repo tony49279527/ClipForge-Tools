@@ -121,9 +121,28 @@
                 <label>{% if is_zh %}YouTube 标题{% else %}YouTube Title{% endif %}
                     <input type="text" name="youtube_title" required placeholder="{% if is_zh %}几分钟恢复金属光泽{% else %}Restore metal shine in minutes{% endif %}">
                 </label>
+                <label>{% if is_zh %}上传账号{% else %}Upload Account{% endif %}
+                    <select name="youtube_account_id">
+                        <option value="">{% if is_zh %}请选择 YouTube 账号{% else %}Select a YouTube account{% endif %}</option>
+                        {% for account in youtube_accounts %}
+                        <option value="{{ account['account_id'] }}">
+                            {{ account["display_name"] }}{% if account["channel_label"] %} · {{ account["channel_label"] }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+            <div class="grid two">
                 <label>{% if is_zh %}YouTube 描述{% else %}YouTube Description{% endif %}
                     <textarea name="youtube_description" rows="4" placeholder="{% if is_zh %}填写发布描述、CTA 和关键词{% else %}Write the publish description, CTA, and keywords{% endif %}"></textarea>
                 </label>
+                <div class="note">
+                    {% if is_zh %}
+                    这里选择的是“上传到哪个 YouTube 账号”。你可以为自己、朋友、客户分别维护独立 token，并在每次任务里快速切换。
+                    {% else %}
+                    This selects which YouTube account receives the upload. Keep separate tokens for your own channel, friends, or clients and switch per job.
+                    {% endif %}
+                </div>
             </div>
 
             <div class="grid two checks">

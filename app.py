@@ -18,6 +18,7 @@ from db import (
     get_job_by_id,
     update_job_fields,
 )
+from youtube_core import list_youtube_accounts
 from video_core import ensure_runtime_dirs, run_video_job
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -39,12 +40,14 @@ def resolve_lang(request: Request) -> str:
 
 def build_common_context(request: Request) -> dict:
     lang = resolve_lang(request)
+    youtube_accounts = list_youtube_accounts()
     return {
         "request": request,
         "lang": lang,
         "is_zh": lang == "zh",
         "lang_switch_en": str(request.url.include_query_params(lang="en")),
         "lang_switch_zh": str(request.url.include_query_params(lang="zh")),
+        "youtube_accounts": youtube_accounts,
     }
 
 
@@ -126,6 +129,7 @@ async def create_job_view(
     resolution: str = Form(...),
     youtube_title: str = Form(...),
     youtube_description: str = Form(""),
+    youtube_account_id: str = Form(""),
     privacy: str = Form(...),
     reference_image_urls: str = Form(""),
     upload_to_youtube: bool = Form(False),
@@ -133,6 +137,8 @@ async def create_job_view(
     reference_images: List[UploadFile] = File(default=[]),
 ):
     del request
+    if upload_to_youtube and not youtube_account_id.strip():
+        raise HTTPException(status_code=400, detail="YouTube account selection is required when upload is enabled.")
     raw_urls = [line.strip() for line in reference_image_urls.splitlines() if line.strip()]
     job_payload = {
         "project_name": project_name.strip(),
@@ -145,6 +151,7 @@ async def create_job_view(
         "clip_count": clip_count,
         "resolution": resolution,
         "youtube_title": youtube_title.strip(),
+        "youtube_account_id": youtube_account_id.strip(),
         "youtube_description": youtube_description.strip(),
         "privacy": privacy,
         "upload_to_youtube": 1 if upload_to_youtube else 0,

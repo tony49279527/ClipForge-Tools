@@ -18,6 +18,7 @@ Environment variables:
 - `ARK_API_KEY`: required
 - `YOUTUBE_CLIENT_SECRET_PATH`: default `/secrets/client_secret.json`
 - `YOUTUBE_TOKEN_PATH`: default `/secrets/youtube_token.json`
+- `YOUTUBE_ACCOUNTS_DIR`: default `./secrets/youtube_accounts`
 - `DATA_DIR`: default `./data`
 - `OUTPUTS_DIR`: default `./outputs`
 - `UPLOADS_DIR`: default `./uploads`
@@ -28,6 +29,47 @@ Notes:
 - If YouTube secret files are missing, the web app still starts normally.
 - A job only fails at the YouTube upload step if upload is requested and YouTube credentials are unavailable.
 - `youtube_token.json` should be generated locally first, then mounted into Cloud Run using Secret Manager or volumes.
+- For multi-account switching, the app can load per-account credentials from `YOUTUBE_ACCOUNTS_DIR`.
+
+## Multi-Account YouTube Upload
+
+This version supports a practical operator workflow: choose a different YouTube upload account for each job.
+
+Recommended directory structure:
+
+```text
+secrets/
+  youtube_accounts/
+    my_channel/
+      client_secret.json
+      youtube_token.json
+      meta.json
+    friend_alex/
+      client_secret.json
+      youtube_token.json
+      meta.json
+    client_rv_tools/
+      client_secret.json
+      youtube_token.json
+      meta.json
+```
+
+Example `meta.json`:
+
+```json
+{
+  "account_id": "client_rv_tools",
+  "display_name": "客户-RV Tools",
+  "channel_label": "RV Tools Official"
+}
+```
+
+How it works:
+
+- the New Job page shows a YouTube account selector
+- each job stores `youtube_account_id`
+- upload uses that account's `client_secret.json` and `youtube_token.json`
+- if upload is enabled but no account is selected, job creation is rejected
 
 ## Project Structure
 

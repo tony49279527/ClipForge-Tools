@@ -350,6 +350,7 @@ def run_video_job(job_id: int) -> None:
                 description=job["youtube_description"],
                 tags=[job["product_name"], job["project_name"], "tools", "amazon"],
                 privacy=job["privacy"],
+                account_id=job["youtube_account_id"] or None,
             )
             update_job_fields(job_id, {"youtube_url": youtube_url})
 

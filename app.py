@@ -137,7 +137,6 @@ async def create_job_view(
     stitch_final_video: bool = Form(True),
     reference_images: List[UploadFile] = File(default=[]),
 ):
-    del request
     if upload_to_youtube and not youtube_account_id.strip():
         raise HTTPException(status_code=400, detail="YouTube account selection is required when upload is enabled.")
     raw_urls = [line.strip() for line in reference_image_urls.splitlines() if line.strip()]

@@ -105,7 +105,7 @@ def create_job(payload: Dict[str, Any]) -> int:
             reference_image_urls_json, status, current_step, final_video_path,
             youtube_url, total_tokens, estimated_cost_cny, error_message,
             uploaded_images_note, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload["project_name"],

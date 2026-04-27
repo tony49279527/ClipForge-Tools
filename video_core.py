@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
+from requests import HTTPError
 
 from db import (
     get_job_by_id,
@@ -159,7 +160,16 @@ def create_seedance_task(
         json=payload,
         timeout=60,
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except HTTPError as exc:
+        response_body = response.text.strip()
+        raise RuntimeError(
+            "Seedance create task failed. "
+            f"status_code={response.status_code}, "
+            f"response={response_body}, "
+            f"request_payload={json.dumps(payload, ensure_ascii=False)}"
+        ) from exc
     data = response.json()
     task_id = data.get("id") or data.get("task_id")
     if not task_id:
@@ -179,7 +189,16 @@ def wait_seedance_task(task_id: str, poll_interval: int = 8, max_wait_seconds: i
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=60,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except HTTPError as exc:
+            response_body = response.text.strip()
+            raise RuntimeError(
+                "Seedance wait task failed. "
+                f"task_id={task_id}, "
+                f"status_code={response.status_code}, "
+                f"response={response_body}"
+            ) from exc
         data = response.json()
         status = str(data.get("status", "")).lower()
         if status in {"succeeded", "success", "completed"}:
@@ -268,6 +287,7 @@ def run_video_job(job_id: int) -> None:
     clips_dir = job_output_dir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
 
+    current_clip_index: Optional[int] = None
     try:
         update_job_fields(job_id, {"status": "running", "current_step": "preparing prompts"})
         prompt_specs = build_clip_prompts(job)
@@ -275,6 +295,7 @@ def run_video_job(job_id: int) -> None:
         clip_paths: List[Path] = []
         for spec in prompt_specs:
             clip_index = spec["clip_index"]
+            current_clip_index = clip_index
             update_job_fields(
                 job_id,
                 {
@@ -356,6 +377,15 @@ def run_video_job(job_id: int) -> None:
 
         update_job_fields(job_id, {"status": "succeeded", "current_step": "Completed"})
     except Exception as exc:
+        if current_clip_index is not None:
+            update_clip_by_job_and_index(
+                job_id,
+                current_clip_index,
+                {
+                    "status": "failed",
+                    "error_message": str(exc),
+                },
+            )
         update_job_fields(
             job_id,
             {

@@ -124,7 +124,7 @@ def build_seedance_content(
             {
                 "type": "image_url",
                 "image_url": {"url": reference_image_url},
-                "role": "reference_image",
+                "role": "first_frame",
             }
         )
     return content

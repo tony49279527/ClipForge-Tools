@@ -244,6 +244,10 @@ def wait_seedance_task(task_id: str, poll_interval: int = 8, max_wait_seconds: i
 
 
 def extract_video_url(task_result: Dict) -> str:
+    content = task_result.get("content") or {}
+    if isinstance(content, dict) and content.get("video_url"):
+        return content["video_url"]
+
     output = task_result.get("output") or {}
     if isinstance(output, dict):
         if output.get("video_url"):

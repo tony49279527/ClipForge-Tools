@@ -21,6 +21,17 @@ SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
 def list_youtube_accounts() -> List[Dict[str, str]]:
     accounts: List[Dict[str, str]] = []
+    
+    # Check if env vars for a single default account are provided
+    if os.getenv("YOUTUBE_CLIENT_SECRET_JSON") and os.getenv("YOUTUBE_TOKEN_JSON"):
+        accounts.append({
+            "account_id": "default_env",
+            "display_name": "系统环境变量账号",
+            "channel_label": "Env Configured",
+            "client_secret_path": "env",
+            "token_path": "env",
+        })
+
     if not YOUTUBE_ACCOUNTS_DIR.exists():
         return accounts
 
@@ -66,6 +77,19 @@ def get_youtube_account_config(account_id: Optional[str]) -> Dict[str, str]:
 
 
 def get_youtube_service(account_id: Optional[str] = None):
+    if account_id == "default_env" or (not account_id and os.getenv("YOUTUBE_TOKEN_JSON")):
+        token_json = os.getenv("YOUTUBE_TOKEN_JSON")
+        if not token_json:
+            raise ValueError("Environment variable YOUTUBE_TOKEN_JSON is missing.")
+        token_data = json.loads(token_json)
+        # Handle google.oauth2.credentials.Credentials directly from dict
+        creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            # For env vars, we refresh in memory but cannot persist back to the env var.
+            # This is fine as long as the refresh token is valid.
+        return build("youtube", "v3", credentials=creds)
+
     account = get_youtube_account_config(account_id)
     client_secret_path = Path(account["client_secret_path"]).resolve()
     token_path = Path(account["token_path"]).resolve()

@@ -138,7 +138,13 @@ async def create_job_view(
     reference_images: List[UploadFile] = File(default=[]),
 ):
     if upload_to_youtube and not youtube_account_id.strip():
-        raise HTTPException(status_code=400, detail="YouTube account selection is required when upload is enabled.")
+        # Fallback: if upload is enabled but no account selected, try to pick the first one automatically
+        from youtube_core import list_youtube_accounts
+        accounts = list_youtube_accounts()
+        if accounts:
+            youtube_account_id = accounts[0]["account_id"]
+        else:
+            raise HTTPException(status_code=400, detail="YouTube account selection is required when upload is enabled, but no accounts are configured.")
     raw_urls = [line.strip() for line in reference_image_urls.splitlines() if line.strip()]
     job_payload = {
         "project_name": project_name.strip(),

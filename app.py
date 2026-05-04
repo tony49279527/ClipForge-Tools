@@ -9,6 +9,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from db import (
     create_clip_records,
@@ -18,7 +19,7 @@ from db import (
     get_job_by_id,
     update_job_fields,
 )
-from youtube_core import list_youtube_accounts
+from youtube_core import list_youtube_accounts, create_oauth_flow, save_authorized_account
 from video_core import ensure_runtime_dirs, run_video_job
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -29,6 +30,7 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 ALLOWED_UPLOAD_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 app = FastAPI(title="ClipForge Tools")
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "clipforge-secret-key-12345"))
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -208,6 +210,47 @@ def job_status(job_id: int):
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
+
+
+@app.get("/youtube/authorize")
+def youtube_authorize(request: Request):
+    if not os.getenv("YOUTUBE_CLIENT_SECRET_JSON"):
+        raise HTTPException(status_code=400, detail="YOUTUBE_CLIENT_SECRET_JSON not configured.")
+    redirect_uri = str(request.url_for("youtube_oauth2callback"))
+    proto = request.headers.get("x-forwarded-proto")
+    if proto == "https" and redirect_uri.startswith("http://"):
+        redirect_uri = redirect_uri.replace("http://", "https://", 1)
+    
+    flow = create_oauth_flow(redirect_uri)
+    auth_url, state = flow.authorization_url(access_type='offline', prompt='consent')
+    request.session['oauth_state'] = state
+    return RedirectResponse(auth_url)
+
+
+@app.get("/youtube/oauth2callback")
+def youtube_oauth2callback(request: Request):
+    state = request.session.get('oauth_state')
+    redirect_uri = str(request.url_for("youtube_oauth2callback"))
+    proto = request.headers.get("x-forwarded-proto")
+    if proto == "https" and redirect_uri.startswith("http://"):
+        redirect_uri = redirect_uri.replace("http://", "https://", 1)
+        
+    # Flow fetch_token requires HTTPS if not running locally, unless OAUTHLIB_INSECURE_TRANSPORT is set
+    # The URL itself must have https scheme for OAuthLib to accept it
+    auth_response_url = str(request.url)
+    if proto == "https" and auth_response_url.startswith("http://"):
+        auth_response_url = auth_response_url.replace("http://", "https://", 1)
+
+    flow = create_oauth_flow(redirect_uri, state=state)
+    try:
+        flow.fetch_token(authorization_response=auth_response_url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch token: {str(e)}")
+
+    creds = flow.credentials
+    save_authorized_account(creds)
+    lang = resolve_lang(request)
+    return RedirectResponse(url=f"/?lang={lang}", status_code=303)
 
 
 if __name__ == "__main__":

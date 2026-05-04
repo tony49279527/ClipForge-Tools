@@ -143,14 +143,19 @@
                         </option>
                         {% endfor %}
                     </select>
+                    <div style="margin-top: 8px;">
+                        <a href="/youtube/authorize" class="btn ghost small" style="padding: 4px 8px; font-size: 0.85em; text-decoration: none;">
+                            {% if is_zh %}➕ 网页端授权新账号{% else %}➕ Authorize New Account via Web{% endif %}
+                        </a>
+                    </div>
                 </label>
             </div>
             {% if not has_youtube_accounts %}
             <div class="note warning">
                 {% if is_zh %}
-                当前系统里还没有配置任何 YouTube 上传账号。请先在服务器的 `secrets/youtube_accounts/` 目录中加入账号凭据，然后刷新页面。
+                当前系统里还没有配置任何 YouTube 上传账号。请点击上方的“网页端授权新账号”按钮进行 Google 授权。
                 {% else %}
-                No YouTube upload accounts are configured yet. Add account credentials under `secrets/youtube_accounts/` on the server, then refresh this page.
+                No YouTube upload accounts are configured yet. Click the "Authorize New Account via Web" button above to log in with Google.
                 {% endif %}
             </div>
             {% endif %}

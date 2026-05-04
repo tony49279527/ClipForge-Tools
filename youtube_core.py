@@ -7,6 +7,8 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from google_auth_oauthlib.flow import Flow
+from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent
 CLIENT_SECRET_PATH = Path(
@@ -14,7 +16,7 @@ CLIENT_SECRET_PATH = Path(
 ).resolve()
 TOKEN_PATH = Path(os.getenv("YOUTUBE_TOKEN_PATH", "/secrets/youtube_token.json")).resolve()
 YOUTUBE_ACCOUNTS_DIR = Path(
-    os.getenv("YOUTUBE_ACCOUNTS_DIR", str(BASE_DIR / "secrets" / "youtube_accounts"))
+    os.getenv("YOUTUBE_ACCOUNTS_DIR", str(BASE_DIR / "data" / "youtube_accounts"))
 ).resolve()
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
@@ -56,6 +58,44 @@ def list_youtube_accounts() -> List[Dict[str, str]]:
             }
         )
     return accounts
+
+
+def create_oauth_flow(redirect_uri: str, state: Optional[str] = None) -> Flow:
+    client_secret_json = os.getenv("YOUTUBE_CLIENT_SECRET_JSON")
+    if not client_secret_json:
+        raise ValueError("Environment variable YOUTUBE_CLIENT_SECRET_JSON is not set.")
+    
+    client_config = json.loads(client_secret_json)
+    flow = Flow.from_client_config(
+        client_config,
+        scopes=SCOPES,
+        state=state
+    )
+    flow.redirect_uri = redirect_uri
+    return flow
+
+
+def save_authorized_account(creds: Credentials) -> str:
+    YOUTUBE_ACCOUNTS_DIR.mkdir(parents=True, exist_ok=True)
+    # Use timestamp as account ID
+    account_id = f"account_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    account_dir = YOUTUBE_ACCOUNTS_DIR / account_id
+    account_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save token
+    token_path = account_dir / "youtube_token.json"
+    token_path.write_text(creds.to_json(), encoding="utf-8")
+
+    # Save meta
+    meta_path = account_dir / "meta.json"
+    meta_data = {
+        "account_id": account_id,
+        "display_name": f"YouTube Account {account_id[-6:]}",
+        "channel_label": "Authorized via Web"
+    }
+    meta_path.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    
+    return account_id
 
 
 def get_youtube_account_config(account_id: Optional[str]) -> Dict[str, str]:

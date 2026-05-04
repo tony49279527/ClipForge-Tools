@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import threading
 import uuid
 from pathlib import Path
 from typing import List
@@ -118,7 +119,6 @@ def index(request: Request):
 @app.post("/jobs")
 async def create_job_view(
     request: Request,
-    background_tasks: BackgroundTasks,
     project_name: str = Form(...),
     product_name: str = Form(...),
     amazon_url: str = Form(""),
@@ -172,7 +172,11 @@ async def create_job_view(
         )
         update_job_fields(job_id, {"uploaded_images_note": note})
 
-    background_tasks.add_task(run_video_job, job_id)
+    # Use a daemon thread instead of FastAPI BackgroundTasks.
+    # BackgroundTasks are tied to the HTTP request lifecycle; Cloud Run can freeze
+    # the container after the response is sent, killing the background task.
+    # A daemon thread lives at the process level and survives the request.
+    threading.Thread(target=run_video_job, args=(job_id,), daemon=True).start()
     lang = resolve_lang(request)
     return RedirectResponse(url=f"/jobs/{job_id}?lang={lang}", status_code=303)
 

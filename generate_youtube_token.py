@@ -18,7 +18,8 @@ def main():
     flow = InstalledAppFlow.from_client_secrets_file("client_secret.json", SCOPES)
     
     # Run the local server to get the credentials
-    creds = flow.run_local_server(port=0)
+    # prompt='consent' forces Google to issue a new refresh_token even if the user has authorized before
+    creds = flow.run_local_server(port=0, prompt='consent')
     
     # Extract data for environment variables
     with open("client_secret.json", "r", encoding="utf-8") as f:

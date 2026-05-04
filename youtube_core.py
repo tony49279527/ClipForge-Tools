@@ -33,6 +33,7 @@ def list_youtube_accounts() -> List[Dict[str, str]]:
         })
         
     # Check if individual GOOGLE env vars are provided
+    google_accounts = []
     for key, value in os.environ.items():
         if key.startswith("GOOGLE_CLIENT_ID"):
             suffix = key[len("GOOGLE_CLIENT_ID"):]
@@ -41,13 +42,17 @@ def list_youtube_accounts() -> List[Dict[str, str]]:
                 if not display_name:
                     display_name = f"环境变量账号 {suffix.strip('_')}" if suffix else "默认环境变量账号"
                 
-                accounts.append({
+                google_accounts.append({
                     "account_id": f"google_env_vars{suffix}",
                     "display_name": display_name,
                     "channel_label": "Cloud Run Configured",
                     "client_secret_path": "env",
                     "token_path": "env",
                 })
+    
+    # Sort to ensure deterministic order (e.g. google_env_vars, google_env_vars_1, etc.)
+    google_accounts.sort(key=lambda x: x["account_id"])
+    accounts.extend(google_accounts)
 
     if not YOUTUBE_ACCOUNTS_DIR.exists():
         return accounts

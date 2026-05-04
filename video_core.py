@@ -114,13 +114,10 @@ def build_clip_prompts(job: Dict[str, Any]) -> List[Dict[str, Optional[str]]]:
     return prompts
 
 
-def build_seedance_payload(
+def build_seedance_content(
     prompt: str,
-    ratio: str,
-    duration: int,
-    resolution: str,
     reference_image_url: Optional[str] = None,
-) -> Dict:
+) -> List[Dict]:
     content = [{"type": "text", "text": prompt}]
     if reference_image_url:
         content.append(
@@ -130,15 +127,23 @@ def build_seedance_payload(
                 "role": "reference_image",
             }
         )
+    return content
 
+
+def build_seedance_payload(
+    prompt: str,
+    ratio: str,
+    duration: int,
+    resolution: str,
+    reference_image_url: Optional[str] = None,
+) -> Dict:
+    content = build_seedance_content(prompt, reference_image_url)
     return {
         "model": SEEDANCE_MODEL,
-        "input": {
-            "ratio": ratio,
-            "duration": duration,
-            "resolution": resolution,
-            "content": content,
-        },
+        "ratio": ratio,
+        "duration": duration,
+        "resolution": resolution,
+        "content": content,
     }
 
 
@@ -154,16 +159,45 @@ def create_seedance_task(
         raise RuntimeError("ARK_API_KEY is not configured")
 
     payload = build_seedance_payload(prompt, ratio, duration, resolution, reference_image_url)
-    response = requests.post(
-        f"{SEEDANCE_BASE_URL}/contents/generations/tasks",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=60,
-    )
+    endpoint = f"{SEEDANCE_BASE_URL}/contents/generations/tasks"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    response = requests.post(endpoint, headers=headers, json=payload, timeout=60)
     try:
         response.raise_for_status()
     except HTTPError as exc:
         response_body = response.text.strip()
+        # Backward-compatible retry if an account still expects nested `input`.
+        if "MissingParameter" in response_body and "`content`" in response_body:
+            fallback_payload = {
+                "model": SEEDANCE_MODEL,
+                "input": {
+                    "ratio": ratio,
+                    "duration": duration,
+                    "resolution": resolution,
+                    "content": build_seedance_content(prompt, reference_image_url),
+                },
+            }
+            fallback_response = requests.post(
+                endpoint,
+                headers=headers,
+                json=fallback_payload,
+                timeout=60,
+            )
+            try:
+                fallback_response.raise_for_status()
+            except HTTPError as fallback_exc:
+                raise RuntimeError(
+                    "Seedance create task failed. "
+                    f"status_code={fallback_response.status_code}, "
+                    f"response={fallback_response.text.strip()}, "
+                    f"request_payload={json.dumps(fallback_payload, ensure_ascii=False)}"
+                ) from fallback_exc
+            data = fallback_response.json()
+            task_id = data.get("id") or data.get("task_id")
+            if not task_id:
+                raise RuntimeError(f"Seedance task id missing in fallback response: {data}")
+            return task_id
+
         raise RuntimeError(
             "Seedance create task failed. "
             f"status_code={response.status_code}, "

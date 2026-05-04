@@ -33,14 +33,21 @@ def list_youtube_accounts() -> List[Dict[str, str]]:
         })
         
     # Check if individual GOOGLE env vars are provided
-    if os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"):
-        accounts.append({
-            "account_id": "google_env_vars",
-            "display_name": "系统环境变量账号 (单独字段)",
-            "channel_label": "Env Configured",
-            "client_secret_path": "env",
-            "token_path": "env",
-        })
+    for key, value in os.environ.items():
+        if key.startswith("GOOGLE_CLIENT_ID"):
+            suffix = key[len("GOOGLE_CLIENT_ID"):]
+            if os.getenv(f"GOOGLE_CLIENT_SECRET{suffix}"):
+                display_name = os.getenv(f"GOOGLE_ACCOUNT_NAME{suffix}")
+                if not display_name:
+                    display_name = f"环境变量账号 {suffix.strip('_')}" if suffix else "默认环境变量账号"
+                
+                accounts.append({
+                    "account_id": f"google_env_vars{suffix}",
+                    "display_name": display_name,
+                    "channel_label": "Cloud Run Configured",
+                    "client_secret_path": "env",
+                    "token_path": "env",
+                })
 
     if not YOUTUBE_ACCOUNTS_DIR.exists():
         return accounts
@@ -87,13 +94,20 @@ def get_youtube_account_config(account_id: Optional[str]) -> Dict[str, str]:
 
 
 def get_youtube_service(account_id: Optional[str] = None):
+    if not account_id:
+        accounts = list_youtube_accounts()
+        if accounts:
+            account_id = accounts[0]["account_id"]
+
     # Support individual GOOGLE_* variables
-    if account_id == "google_env_vars" or (not account_id and os.getenv("GOOGLE_CLIENT_ID")):
-        client_id = os.getenv("GOOGLE_CLIENT_ID")
-        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        refresh_token = os.getenv("GOOGLE_REFRESH_TOKEN")
+    if account_id and account_id.startswith("google_env_vars"):
+        suffix = account_id[len("google_env_vars"):]
+        client_id = os.getenv(f"GOOGLE_CLIENT_ID{suffix}")
+        client_secret = os.getenv(f"GOOGLE_CLIENT_SECRET{suffix}")
+        refresh_token = os.getenv(f"GOOGLE_REFRESH_TOKEN{suffix}")
+        
         if not refresh_token:
-            raise ValueError("Environment variable GOOGLE_REFRESH_TOKEN is missing. Please run generate_youtube_token.py locally to get it.")
+            raise ValueError(f"Environment variable GOOGLE_REFRESH_TOKEN{suffix} is missing. Please run generate_youtube_token.py locally to get it.")
         
         creds = Credentials(
             token=None,

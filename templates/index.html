@@ -136,9 +136,11 @@
                 </label>
                 <label>{% if is_zh %}上传账号{% else %}Upload Account{% endif %}
                     <select name="youtube_account_id">
+                        {% if youtube_accounts|length != 1 %}
                         <option value="">{% if is_zh %}请选择 YouTube 账号{% else %}Select a YouTube account{% endif %}</option>
+                        {% endif %}
                         {% for account in youtube_accounts %}
-                        <option value="{{ account['account_id'] }}">
+                        <option value="{{ account['account_id'] }}" {% if youtube_accounts|length == 1 %}selected{% endif %}>
                             {{ account["display_name"] }}{% if account["channel_label"] %} · {{ account["channel_label"] }}{% endif %}
                         </option>
                         {% endfor %}

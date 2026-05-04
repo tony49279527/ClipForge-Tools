@@ -61,7 +61,13 @@
         <div class="progress-bar">
             <div class="progress-bar-fill" id="progress-fill" style="width: 0%;"></div>
         </div>
-        <p class="hint" id="progress-text">{% if is_zh %}正在准备进度信息...{% else %}Preparing progress...{% endif %}</p>
+        <p class="hint" id="progress-text" style="font-size: 14px; font-weight: 500; margin-top: 8px;">{% if is_zh %}正在准备进度信息...{% else %}Preparing progress...{% endif %}</p>
+        
+        <!-- Prominent YouTube Success Banner -->
+        <div id="youtube-success-banner" style="display: none; margin-top: 20px; padding: 20px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+            <div style="color: #166534; font-size: 18px; font-weight: 700; margin-bottom: 8px;">🎉 {% if is_zh %}视频已成功发布到 YouTube！{% else %}Video successfully published to YouTube!{% endif %}</div>
+            <a id="youtube-banner-link" href="#" target="_blank" style="display: inline-block; font-weight: 600; font-size: 16px; color: #15803d; text-decoration: underline; background: #dcfce7; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;"></a>
+        </div>
     </div>
 
     {% if job["uploaded_images_note"] %}
@@ -118,13 +124,36 @@
 
     function renderProgress(job, clips) {
         const isZh = {{ "true" if is_zh else "false" }};
-        const completed = clips.filter(item => item.status === "succeeded").length;
-        const total = clips.length || 1;
-        const percent = Math.round((completed / total) * 100);
+        
+        let percent = 0;
+        let progressText = "";
+        
+        if (job.status === "queued") {
+            percent = 5;
+            progressText = isZh ? "排队中，准备开始..." : "Queued, preparing to start...";
+        } else if (job.status === "running" || job.status === "generating_clips") {
+            const completed = clips.filter(item => item.status === "succeeded").length;
+            const total = clips.length || 1;
+            percent = 10 + Math.round((completed / total) * 60); // Clips generation takes up to 70%
+            progressText = isZh ? `正在生成视频片段 (${completed}/${total})...` : `Generating video clips (${completed}/${total})...`;
+        } else if (job.status === "stitching") {
+            percent = 80;
+            progressText = isZh ? "正在将所有片段合并为最终视频..." : "Stitching clips into final video...";
+        } else if (job.status === "uploading") {
+            percent = 90;
+            progressText = isZh ? "正在将视频发布到 YouTube..." : "Publishing video to YouTube...";
+        } else if (job.status === "succeeded") {
+            percent = 100;
+            progressText = isZh ? "✅ 任务所有步骤已完成！" : "✅ Job fully completed!";
+            document.getElementById("progress-fill").style.backgroundColor = "#10b981"; // Green for success
+        } else if (job.status === "failed") {
+            percent = 100;
+            progressText = isZh ? "❌ 任务执行失败" : "❌ Job execution failed";
+            document.getElementById("progress-fill").style.backgroundColor = "#ef4444"; // Red for failure
+        }
+
         document.getElementById("progress-fill").style.width = `${percent}%`;
-        document.getElementById("progress-text").textContent = isZh
-            ? `已完成 ${completed}/${total} 个片段`
-            : `${completed}/${total} clips completed`;
+        document.getElementById("progress-text").textContent = progressText;
         document.getElementById("job-status").textContent = job.status;
         document.getElementById("job-step").textContent = job.current_step || "-";
         document.getElementById("job-tokens").textContent = job.total_tokens;
@@ -132,10 +161,19 @@
         document.getElementById("job-final-path").textContent = job.final_video_path || "-";
 
         const youtubeNode = document.getElementById("job-youtube-url");
+        const youtubeBanner = document.getElementById("youtube-success-banner");
+        const youtubeBannerLink = document.getElementById("youtube-banner-link");
+
         if (job.youtube_url) {
-            youtubeNode.innerHTML = `<a href="${job.youtube_url}" target="_blank">${job.youtube_url}</a>`;
+            youtubeNode.innerHTML = `<a href="${job.youtube_url}" target="_blank" style="text-decoration: underline; color: #2563eb;">${job.youtube_url}</a>`;
+            if (job.status === "succeeded") {
+                youtubeBanner.style.display = "block";
+                youtubeBannerLink.href = job.youtube_url;
+                youtubeBannerLink.textContent = isZh ? "点击前往 YouTube 观看" : "Click to watch on YouTube";
+            }
         } else {
             youtubeNode.textContent = "-";
+            youtubeBanner.style.display = "none";
         }
 
         const errorNode = document.getElementById("job-error");

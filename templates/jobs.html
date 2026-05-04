@@ -29,6 +29,7 @@
                     <th>{% if is_zh %}状态{% else %}Status{% endif %}</th>
                     <th>{% if is_zh %}当前步骤{% else %}Step{% endif %}</th>
                     <th>{% if is_zh %}更新时间{% else %}Updated{% endif %}</th>
+                    <th>YouTube</th>
                 </tr>
             </thead>
             <tbody>
@@ -40,6 +41,13 @@
                     <td><span class="status {{ job['status'] }}">{{ job["status"] }}</span></td>
                     <td>{{ job["current_step"] or "-" }}</td>
                     <td>{{ job["updated_at"] }}</td>
+                    <td>
+                        {% if job["youtube_url"] %}
+                        <a href="{{ job['youtube_url'] }}" target="_blank" style="text-decoration: underline;">{% if is_zh %}播放{% else %}Watch{% endif %}</a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
                 </tr>
                 {% else %}
                 <tr>

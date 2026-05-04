@@ -161,7 +161,8 @@ def create_seedance_task(
     payload = build_seedance_payload(prompt, ratio, duration, resolution, reference_image_url)
     endpoint = f"{SEEDANCE_BASE_URL}/contents/generations/tasks"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    response = requests.post(endpoint, headers=headers, json=payload, timeout=60)
+    proxies = {"http": None, "https": None}
+    response = requests.post(endpoint, headers=headers, json=payload, timeout=60, proxies=proxies)
     try:
         response.raise_for_status()
     except HTTPError as exc:
@@ -182,6 +183,7 @@ def create_seedance_task(
                 headers=headers,
                 json=fallback_payload,
                 timeout=60,
+                proxies=proxies,
             )
             try:
                 fallback_response.raise_for_status()
@@ -217,11 +219,13 @@ def wait_seedance_task(task_id: str, poll_interval: int = 8, max_wait_seconds: i
         raise RuntimeError("ARK_API_KEY is not configured")
 
     deadline = time.time() + max_wait_seconds
+    proxies = {"http": None, "https": None}
     while time.time() < deadline:
         response = requests.get(
             f"{SEEDANCE_BASE_URL}/contents/generations/tasks/{task_id}",
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=60,
+            proxies=proxies,
         )
         try:
             response.raise_for_status()
@@ -267,7 +271,8 @@ def extract_total_tokens(task_result: Dict) -> int:
 
 def download_video(video_url: str, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with requests.get(video_url, stream=True, timeout=300) as response:
+    proxies = {"http": None, "https": None}
+    with requests.get(video_url, stream=True, timeout=300, proxies=proxies) as response:
         response.raise_for_status()
         with output_path.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=1024 * 1024):

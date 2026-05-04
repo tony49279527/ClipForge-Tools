@@ -26,7 +26,17 @@ def list_youtube_accounts() -> List[Dict[str, str]]:
     if os.getenv("YOUTUBE_CLIENT_SECRET_JSON") and os.getenv("YOUTUBE_TOKEN_JSON"):
         accounts.append({
             "account_id": "default_env",
-            "display_name": "系统环境变量账号",
+            "display_name": "系统环境变量账号 (JSON)",
+            "channel_label": "Env Configured",
+            "client_secret_path": "env",
+            "token_path": "env",
+        })
+        
+    # Check if individual GOOGLE env vars are provided
+    if os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"):
+        accounts.append({
+            "account_id": "google_env_vars",
+            "display_name": "系统环境变量账号 (单独字段)",
             "channel_label": "Env Configured",
             "client_secret_path": "env",
             "token_path": "env",
@@ -77,6 +87,27 @@ def get_youtube_account_config(account_id: Optional[str]) -> Dict[str, str]:
 
 
 def get_youtube_service(account_id: Optional[str] = None):
+    # Support individual GOOGLE_* variables
+    if account_id == "google_env_vars" or (not account_id and os.getenv("GOOGLE_CLIENT_ID")):
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+        refresh_token = os.getenv("GOOGLE_REFRESH_TOKEN")
+        if not refresh_token:
+            raise ValueError("Environment variable GOOGLE_REFRESH_TOKEN is missing. Please run generate_youtube_token.py locally to get it.")
+        
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=SCOPES
+        )
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        return build("youtube", "v3", credentials=creds)
+
+    # Support full JSON string variables
     if account_id == "default_env" or (not account_id and os.getenv("YOUTUBE_TOKEN_JSON")):
         token_json = os.getenv("YOUTUBE_TOKEN_JSON")
         if not token_json:

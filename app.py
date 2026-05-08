@@ -92,17 +92,51 @@ def on_startup() -> None:
 
 @app.get("/")
 def index(request: Request):
+    sample_job = {
+        "project_name": "RV Hitch Shine Full Workflow",
+        "product_name": "Cotton Polishing Wheel Kit",
+        "amazon_url": "https://www.amazon.com/dp/B0TEST12345",
+        "product_brief": (
+            "6-inch cotton polishing wheel kit for bench grinder use. Designed for aluminum, brass, "
+            "stainless steel, trailer hitch balls, and oxidized hardware. Show a full garage workflow "
+            "from dull metal to reflective finish for Amazon buyers in garage DIY, automotive "
+            "restoration, and RV maintenance."
+        ),
+        "video_mode": "long_video",
+        "ratio": "9:16",
+        "clip_duration": 10,
+        "clip_count": 4,
+        "resolution": "720p",
+        "privacy": "unlisted",
+        "youtube_title": "From Dull to Mirror Shine: 4-Step RV Hitch Polish Demo",
+        "youtube_description": (
+            "See a complete 4-step garage polishing workflow using a cotton polishing wheel kit. "
+            "This demo covers hook, product closeup, setup, and final RV hitch shine result. "
+            "Product link in description."
+        ),
+        "reference_image_urls": "\n".join(
+            [
+                "https://images.unsplash.com/photo-1503376780353-7e6692767b70",
+                "https://images.unsplash.com/photo-1517524206127-48bbd363f3d7",
+                "https://images.unsplash.com/photo-1486006920555-c77dcf18193c",
+                "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3",
+            ]
+        ),
+        "upload_to_youtube": True,
+        "stitch_final_video": True,
+    }
     context = build_common_context(request)
     context.update(
         {
             "defaults": {
-                "video_mode": "shorts",
+                "video_mode": "long_video",
                 "ratio": "9:16",
-                "clip_duration": 5,
-                "clip_count": 2,
+                "clip_duration": 10,
+                "clip_count": 4,
                 "resolution": "720p",
-                "privacy": "private",
+                "privacy": "unlisted",
             },
+            "sample_job": sample_job,
             "youtube_notice": (
                 "Due to YouTube Data API restrictions, videos uploaded via videos.insert from projects "
                 "created after July 28, 2020 and not yet audited may be forced to Private even if you select "

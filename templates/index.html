@@ -31,11 +31,11 @@
     <div class="sample-card">
         <div>
             <span class="eyebrow">{% if is_zh %}测试案例{% else %}Sample Job{% endif %}</span>
-            <h3>{% if is_zh %}先用一套现成案例跑通整个流程{% else %}Load a ready-made case to test the full flow{% endif %}</h3>
-            <p class="hint">{% if is_zh %}适合先验证表单、任务创建、片段生成和 YouTube 上传流程是否正常。{% else %}Useful for quickly validating the form, job creation, clip generation, and YouTube upload flow.{% endif %}</p>
+            <h3>{% if is_zh %}默认就是一套 4 段案例，可直接跑完整流程{% else %}A 4-clip sample is preloaded by default for end-to-end testing{% endif %}</h3>
+            <p class="hint">{% if is_zh %}当前预置为 4 段、每段 10 秒，更适合验证生成、拼接和上传后的完整成片效果。{% else %}The current preset uses 4 clips at 10 seconds each, which is better for validating generation, stitching, and upload end to end.{% endif %}</p>
         </div>
         <button type="button" class="btn ghost sample-load-btn" id="load-sample-job">
-            {% if is_zh %}载入测试案例{% else %}Load Sample{% endif %}
+            {% if is_zh %}重新载入案例{% else %}Reload Sample{% endif %}
         </button>
     </div>
 </section>
@@ -57,19 +57,19 @@
             </div>
             <div class="grid two">
                 <label>{% if is_zh %}项目名称{% else %}Project Name{% endif %}
-                    <input type="text" name="project_name" required placeholder="{% if is_zh %}四月车库投放计划{% else %}April Garage Campaign{% endif %}">
+                    <input type="text" name="project_name" required value="{{ sample_job.project_name }}" placeholder="{% if is_zh %}四月车库投放计划{% else %}April Garage Campaign{% endif %}">
                 </label>
                 <label>{% if is_zh %}产品名称{% else %}Product Name{% endif %}
-                    <input type="text" name="product_name" required placeholder="{% if is_zh %}台式抛光轮套装{% else %}Bench Polishing Wheel Kit{% endif %}">
+                    <input type="text" name="product_name" required value="{{ sample_job.product_name }}" placeholder="{% if is_zh %}台式抛光轮套装{% else %}Bench Polishing Wheel Kit{% endif %}">
                 </label>
             </div>
 
             <label>{% if is_zh %}Amazon 产品链接{% else %}Amazon Product URL{% endif %}
-                <input type="url" name="amazon_url" placeholder="https://www.amazon.com/...">
+                <input type="url" name="amazon_url" value="{{ sample_job.amazon_url }}" placeholder="https://www.amazon.com/...">
             </label>
 
             <label>{% if is_zh %}产品核心卖点{% else %}Product Brief{% endif %}
-                <textarea name="product_brief" rows="5" required placeholder="{% if is_zh %}卖点、使用场景、材质、目标买家{% else %}Key selling points, use case, material, target buyer{% endif %}"></textarea>
+                <textarea name="product_brief" rows="5" required placeholder="{% if is_zh %}卖点、使用场景、材质、目标买家{% else %}Key selling points, use case, material, target buyer{% endif %}">{{ sample_job.product_brief }}</textarea>
             </label>
         </section>
 
@@ -81,21 +81,21 @@
             <div class="grid three">
                 <label>{% if is_zh %}视频类型{% else %}Video Mode{% endif %}
                     <select name="video_mode">
-                        <option value="shorts">shorts</option>
-                        <option value="long_video">long_video</option>
+                        <option value="shorts" {% if defaults.video_mode == "shorts" %}selected{% endif %}>shorts</option>
+                        <option value="long_video" {% if defaults.video_mode == "long_video" %}selected{% endif %}>long_video</option>
                     </select>
                 </label>
                 <label>{% if is_zh %}画面比例{% else %}Ratio{% endif %}
                     <select name="ratio">
-                        <option value="9:16">9:16</option>
-                        <option value="16:9">16:9</option>
+                        <option value="9:16" {% if defaults.ratio == "9:16" %}selected{% endif %}>9:16</option>
+                        <option value="16:9" {% if defaults.ratio == "16:9" %}selected{% endif %}>16:9</option>
                     </select>
                 </label>
                 <label>{% if is_zh %}单段时长{% else %}Clip Duration{% endif %}
                     <select name="clip_duration">
-                        <option value="5">5</option>
-                        <option value="10">10</option>
-                        <option value="15">15</option>
+                        <option value="5" {% if defaults.clip_duration == 5 %}selected{% endif %}>5</option>
+                        <option value="10" {% if defaults.clip_duration == 10 %}selected{% endif %}>10</option>
+                        <option value="15" {% if defaults.clip_duration == 15 %}selected{% endif %}>15</option>
                     </select>
                 </label>
             </div>
@@ -103,23 +103,23 @@
             <div class="grid three">
                 <label>{% if is_zh %}片段数量{% else %}Clip Count{% endif %}
                     <select name="clip_count">
-                        <option value="1">1</option>
-                        <option value="2" selected>2</option>
-                        <option value="4">4</option>
-                        <option value="20">20</option>
+                        <option value="1" {% if defaults.clip_count == 1 %}selected{% endif %}>1</option>
+                        <option value="2" {% if defaults.clip_count == 2 %}selected{% endif %}>2</option>
+                        <option value="4" {% if defaults.clip_count == 4 %}selected{% endif %}>4</option>
+                        <option value="20" {% if defaults.clip_count == 20 %}selected{% endif %}>20</option>
                     </select>
                 </label>
                 <label>{% if is_zh %}分辨率{% else %}Resolution{% endif %}
                     <select name="resolution">
-                        <option value="480p">480p</option>
-                        <option value="720p" selected>720p</option>
+                        <option value="480p" {% if defaults.resolution == "480p" %}selected{% endif %}>480p</option>
+                        <option value="720p" {% if defaults.resolution == "720p" %}selected{% endif %}>720p</option>
                     </select>
                 </label>
                 <label>{% if is_zh %}YouTube 可见性{% else %}Privacy{% endif %}
                     <select name="privacy">
-                        <option value="private" selected>private</option>
-                        <option value="unlisted">unlisted</option>
-                        <option value="public">public</option>
+                        <option value="private" {% if defaults.privacy == "private" %}selected{% endif %}>private</option>
+                        <option value="unlisted" {% if defaults.privacy == "unlisted" %}selected{% endif %}>unlisted</option>
+                        <option value="public" {% if defaults.privacy == "public" %}selected{% endif %}>public</option>
                     </select>
                 </label>
             </div>
@@ -132,7 +132,7 @@
             </div>
             <div class="grid two">
                 <label>{% if is_zh %}YouTube 标题{% else %}YouTube Title{% endif %}
-                    <input type="text" name="youtube_title" required placeholder="{% if is_zh %}几分钟恢复金属光泽{% else %}Restore metal shine in minutes{% endif %}">
+                    <input type="text" name="youtube_title" required value="{{ sample_job.youtube_title }}" placeholder="{% if is_zh %}几分钟恢复金属光泽{% else %}Restore metal shine in minutes{% endif %}">
                 </label>
                 <label>{% if is_zh %}上传账号{% else %}Upload Account{% endif %}
                     <select name="youtube_account_id">
@@ -158,7 +158,7 @@
             {% endif %}
             <div class="grid two">
                 <label>{% if is_zh %}YouTube 描述{% else %}YouTube Description{% endif %}
-                    <textarea name="youtube_description" rows="4" placeholder="{% if is_zh %}填写发布描述、CTA 和关键词{% else %}Write the publish description, CTA, and keywords{% endif %}"></textarea>
+                    <textarea name="youtube_description" rows="4" placeholder="{% if is_zh %}填写发布描述、CTA 和关键词{% else %}Write the publish description, CTA, and keywords{% endif %}">{{ sample_job.youtube_description }}</textarea>
                 </label>
                 <div class="note">
                     {% if is_zh %}
@@ -171,14 +171,14 @@
 
             <div class="grid two checks">
                 <label class="checkbox">
-                    <input type="checkbox" name="upload_to_youtube" value="true">
+                    <input type="checkbox" name="upload_to_youtube" value="true" {% if sample_job.upload_to_youtube %}checked{% endif %}>
                     <span>
                         <strong>{% if is_zh %}上传最终视频{% else %}Upload final video{% endif %}</strong>
                         <small>{% if is_zh %}生成并拼接完成后，自动上传到 YouTube。{% else %}Send the stitched result to YouTube after render.{% endif %}</small>
                     </span>
                 </label>
                 <label class="checkbox">
-                    <input type="checkbox" name="stitch_final_video" value="true" checked>
+                    <input type="checkbox" name="stitch_final_video" value="true" {% if sample_job.stitch_final_video %}checked{% endif %}>
                     <span>
                         <strong>{% if is_zh %}使用 FFmpeg 拼接{% else %}Stitch clips with FFmpeg{% endif %}</strong>
                         <small>{% if is_zh %}把多个片段合成为一个最终 MP4 文件。{% else %}Create one final MP4 from generated clips.{% endif %}</small>
@@ -194,7 +194,7 @@
             </div>
             <div class="grid two">
                 <label>{% if is_zh %}参考图 URL{% else %}Reference Image URLs{% endif %}
-                    <textarea name="reference_image_urls" rows="6" placeholder="{% if is_zh %}每行一个公网图片 URL{% else %}One public image URL per line{% endif %}"></textarea>
+                    <textarea name="reference_image_urls" rows="6" placeholder="{% if is_zh %}每行一个公网图片 URL{% else %}One public image URL per line{% endif %}">{{ sample_job.reference_image_urls }}</textarea>
                 </label>
 
                 <label>{% if is_zh %}上传参考图{% else %}Reference Images Upload{% endif %}
@@ -229,13 +229,13 @@
     if (loadSampleButton) {
         loadSampleButton.addEventListener("click", () => {
             const fields = {
-                project_name: "RV Hitch Polish Campaign",
+                project_name: "RV Hitch Shine Full Workflow",
                 product_name: "Cotton Polishing Wheel Kit",
                 amazon_url: "https://www.amazon.com/dp/B0TEST12345",
-                product_brief: "6-inch cotton polishing wheel kit for bench grinder use. Designed for aluminum, brass, stainless steel, trailer hitch balls, and oxidized hardware. Target users are Amazon buyers in garage DIY, automotive restoration, and RV maintenance.",
-                youtube_title: "Restore RV Hitch Shine with a Cotton Polishing Wheel Kit",
-                youtube_description: "This demo shows how a cotton polishing wheel kit can restore shine on RV hitch balls, aluminum parts, and garage hardware. Product link in description. Great for automotive restoration, DIY polishing, and RV maintenance.",
-                reference_image_urls: "https://images.unsplash.com/photo-1503376780353-7e6692767b70\nhttps://images.unsplash.com/photo-1517524206127-48bbd363f3d7",
+                product_brief: "6-inch cotton polishing wheel kit for bench grinder use. Designed for aluminum, brass, stainless steel, trailer hitch balls, and oxidized hardware. Show a full garage workflow from dull metal to reflective finish for Amazon buyers in garage DIY, automotive restoration, and RV maintenance.",
+                youtube_title: "From Dull to Mirror Shine: 4-Step RV Hitch Polish Demo",
+                youtube_description: "See a complete 4-step garage polishing workflow using a cotton polishing wheel kit. This demo covers hook, product closeup, setup, and final RV hitch shine result. Product link in description.",
+                reference_image_urls: "https://images.unsplash.com/photo-1503376780353-7e6692767b70\nhttps://images.unsplash.com/photo-1517524206127-48bbd363f3d7\nhttps://images.unsplash.com/photo-1486006920555-c77dcf18193c\nhttps://images.unsplash.com/photo-1486262715619-67b85e0b08d3",
             };
 
             Object.entries(fields).forEach(([name, value]) => {
@@ -252,10 +252,10 @@
                 }
             };
 
-            setSelect("video_mode", "shorts");
+            setSelect("video_mode", "long_video");
             setSelect("ratio", "9:16");
-            setSelect("clip_duration", "5");
-            setSelect("clip_count", "2");
+            setSelect("clip_duration", "10");
+            setSelect("clip_count", "4");
             setSelect("resolution", "720p");
             setSelect("privacy", "unlisted");
 
@@ -266,7 +266,7 @@
 
             const uploadCheckbox = document.querySelector('[name="upload_to_youtube"]');
             if (uploadCheckbox) {
-                uploadCheckbox.checked = false;
+                uploadCheckbox.checked = true;
             }
         });
     }

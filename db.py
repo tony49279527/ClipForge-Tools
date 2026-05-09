@@ -390,6 +390,30 @@ def get_storyboard_frame(frame_id: int) -> Optional[sqlite3.Row]:
     return row
 
 
+def swap_storyboard_frame_positions(frame_a_id: int, frame_b_id: int) -> None:
+    # Fetch both frames and swap clip_index
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, clip_index FROM storyboard_frames WHERE id IN (?, ?)", (frame_a_id, frame_b_id))
+    rows = cur.fetchall()
+    if len(rows) != 2:
+        conn.close()
+        raise ValueError(f"Could not find both frames to swap: {frame_a_id}, {frame_b_id}")
+    id_to_idx = {row["id"]: row["clip_index"] for row in rows}
+    idx_a, idx_b = id_to_idx[frame_a_id], id_to_idx[frame_b_id]
+    now = utc_now()
+    cur.execute(
+        "UPDATE storyboard_frames SET clip_index = ?, updated_at = ? WHERE id = ?",
+        (idx_b, now, frame_a_id),
+    )
+    cur.execute(
+        "UPDATE storyboard_frames SET clip_index = ?, updated_at = ? WHERE id = ?",
+        (idx_a, now, frame_b_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def create_storyboard_frames(job_id: int, frame_specs: Sequence[Dict[str, Any]]) -> None:
     now = utc_now()
     conn = get_conn()
@@ -526,6 +550,36 @@ def update_frame_image_version(version_id: int, fields: Dict[str, Any]) -> None:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(f"UPDATE frame_image_versions SET {assignments} WHERE id = ?", values)
+    conn.commit()
+    conn.close()
+
+
+def set_current_frame_image_version(frame_id: int, version_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    # Mark all versions for this frame as not current
+    cur.execute("UPDATE frame_image_versions SET is_current = 0 WHERE frame_id = ?", (frame_id,))
+    # Mark selected version as current
+    cur.execute("UPDATE frame_image_versions SET is_current = 1 WHERE id = ?", (version_id,))
+    # Update storyboard frame to point to the current version
+    cur.execute(
+        """
+        SELECT version_no, image_remote_url, image_local_path, image_status, image_model, tokens, estimated_cost_cny
+        FROM frame_image_versions
+        WHERE id = ?
+        """,
+        (version_id,),
+    )
+    row = cur.fetchone()
+    if row:
+        cur.execute(
+            """
+            UPDATE storyboard_frames
+            SET image_remote_url = ?, image_local_path = ?, image_status = ?, image_model = ?, image_tokens = ?, image_estimated_cost_cny = ?, prompt_version = ?
+            WHERE id = ?
+            """,
+            (row["image_remote_url"], row["image_local_path"], row["image_status"], row["image_model"], row["tokens"], row["estimated_cost_cny"], row["version_no"], frame_id),
+        )
     conn.commit()
     conn.close()
 

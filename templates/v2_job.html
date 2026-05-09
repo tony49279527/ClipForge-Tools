@@ -89,6 +89,8 @@
                 <div class="storyboard-preview">
                     {% if frame["image_remote_url"] %}
                     <img src="{{ frame['image_remote_url'] }}" alt="storyboard frame {{ frame['clip_index'] }}">
+                    {% elif frame["image_local_path"] %}
+                    <img src="/v2/storyboards/versions/{{ frame['versions'][0]['id'] }}/image" alt="storyboard frame {{ frame['clip_index'] }}">
                     {% else %}
                     <div class="empty-state">{% if is_zh %}尚未生成图片{% else %}No storyboard image yet{% endif %}</div>
                     {% endif %}
@@ -96,8 +98,21 @@
                 <div class="storyboard-meta">
                     <p><strong>Tokens:</strong> {{ frame["image_tokens"] }}</p>
                     <p><strong>Cost:</strong> ¥{{ frame["image_estimated_cost_cny"] }}</p>
-                    <p><strong>URL:</strong> {{ frame["image_remote_url"] or "-" }}</p>
                     <p><strong>{% if is_zh %}版本数{% else %}Versions{% endif %}:</strong> {{ frame["versions"]|length }}</p>
+                    {% if frame["versions"]|length > 1 %}
+                    <div class="version-list">
+                        <p><strong>{% if is_zh %}历史版本{% else %}Versions{% endif %}:</strong></p>
+                        <div class="pill-row" style="flex-wrap: wrap; gap: 4px;">
+                            {% for v in frame["versions"] %}
+                            <form action="/v2/jobs/{{ job['id'] }}/frames/{{ frame['id'] }}/set-version/{{ v['id'] }}?lang={{ lang }}" method="post" style="display:inline;">
+                                <button class="btn tiny {% if v['is_current'] %}primary{% else %}ghost{% endif %}" type="submit">
+                                    v{{ v['version_no'] }}{% if v['is_current'] %} (current){% endif %}
+                                </button>
+                            </form>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </article>
@@ -108,6 +123,9 @@
     <div class="form-actions">
         <form action="/v2/jobs/{{ job['id'] }}/generate-images?lang={{ lang }}" method="post">
             <button class="btn primary" type="submit">{% if is_zh %}生成 / 重生成全部分镜图{% else %}Generate / Regenerate All Storyboard Images{% endif %}</button>
+        </form>
+        <form action="/v2/jobs/{{ job['id'] }}/approve-all?lang={{ lang }}" method="post">
+            <button class="btn ghost" type="submit">{% if is_zh %}一键确认所有分镜{% else %}Approve All Frames{% endif %}</button>
         </form>
     </div>
 </section>

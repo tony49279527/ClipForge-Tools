@@ -27,6 +27,8 @@ from db import (
     get_usage_totals_by_stage,
     list_frame_image_versions,
     list_usage_events,
+    set_current_frame_image_version,
+    swap_storyboard_frame_positions,
     update_frame_image_version,
     update_job_fields,
     update_storyboard_frame,
@@ -687,9 +689,50 @@ def approve_v2_frame(request: Request, frame_id: int):
     return RedirectResponse(url=f"/v2/jobs/{frame['job_id']}?lang={resolve_lang(request)}", status_code=303)
 
 
+@app.post("/v2/jobs/{job_id}/approve-all")
+def approve_all_v2(request: Request, job_id: int):
+    frames = get_storyboard_frames(job_id)
+    if not frames:
+        raise HTTPException(status_code=404, detail="No storyboard frames found")
+    for frame in frames:
+        update_storyboard_frame(frame["id"], {"user_approved": 1})
+    update_job_fields(job_id, {"workflow_stage": "images_approved", "current_step": "All storyboard frames approved"})
+    return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
+
+
 @app.post("/v2/jobs/{job_id}/launch-video")
 def launch_v2_video(request: Request, job_id: int):
     threading.Thread(target=run_storyboard_video_job, args=(job_id,), daemon=True).start()
+    return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
+
+
+@app.post("/v2/jobs/{job_id}/frames/{frame_id}/set-version/{version_id}")
+def set_v2_frame_version(request: Request, job_id: int, frame_id: int, version_id: int):
+    version = get_frame_image_version(version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail="Image version not found")
+    set_current_frame_image_version(frame_id, version_id)
+    return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
+
+
+@app.post("/v2/jobs/{job_id}/frames/{frame_id}/move-{direction}")
+def move_v2_frame(request: Request, job_id: int, frame_id: int, direction: str):
+    if direction not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="Direction must be up or down")
+    frame = get_storyboard_frame(frame_id)
+    if not frame:
+        raise HTTPException(status_code=404, detail="Storyboard frame not found")
+    frames = get_storyboard_frames(job_id)
+    sorted_frames = sorted(frames, key=lambda f: f["clip_index"])
+    current_idx = next((i for i, f in enumerate(sorted_frames) if f["id"] == frame_id), -1)
+    if current_idx == -1:
+        raise HTTPException(status_code=404, detail="Frame not found in job")
+    if direction == "up" and current_idx == 0:
+        raise HTTPException(status_code=400, detail="Already the first frame")
+    if direction == "down" and current_idx == len(sorted_frames) - 1:
+        raise HTTPException(status_code=400, detail="Already the last frame")
+    swap_with = sorted_frames[current_idx - 1] if direction == "up" else sorted_frames[current_idx + 1]
+    swap_storyboard_frame_positions(frame_id, swap_with["id"])
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
 
 

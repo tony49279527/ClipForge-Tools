@@ -9,11 +9,17 @@ import base64
 import requests
 from requests import HTTPError
 
+try:
+    from prompt_enhance import enhance_video_prompt
+except ImportError:
+    enhance_video_prompt = None
+
 from db import (
     create_clip_records,
     delete_clips_for_job,
     get_current_frame_image_version,
     get_job_by_id,
+    get_storyboard_frame,
     get_storyboard_frames,
     init_db,
     sum_clip_metrics,
@@ -558,8 +564,19 @@ def run_storyboard_video_job(job_id: int) -> None:
                     "status": "running",
                 },
             )
+            # Enhance prompt if the module is available
+            video_prompt = spec["prompt"]
+            if enhance_video_prompt is not None:
+                frame_meta = get_storyboard_frame(spec["frame_id"])
+                video_prompt = enhance_video_prompt(
+                    original_prompt=spec["prompt"],
+                    product_name=job.get("product_name", ""),
+                    scene_role=frame_meta["scene_role"] if frame_meta else "scene",
+                    clip_duration=job.get("clip_duration", 10),
+                    ratio=job.get("ratio", "9:16"),
+                )
             seedance_task_id = create_seedance_task(
-                prompt=spec["prompt"],
+                prompt=video_prompt,
                 ratio=job["ratio"],
                 duration=job["clip_duration"],
                 resolution=job["resolution"],

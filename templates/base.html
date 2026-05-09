@@ -27,6 +27,7 @@
             <nav class="nav">
                 <a href="/?lang={{ lang }}">{% if is_zh %}新建任务{% else %}New Job{% endif %}</a>
                 <a href="/jobs?lang={{ lang }}">{% if is_zh %}任务列表{% else %}Jobs{% endif %}</a>
+                <a href="/v2?lang={{ lang }}">{% if is_zh %}2.0 工作流{% else %}2.0 Workflow{% endif %}</a>
                 <div class="lang-switch">
                     <a class="{% if not is_zh %}active{% endif %}" href="{{ lang_switch_en }}">EN</a>
                     <a class="{% if is_zh %}active{% endif %}" href="{{ lang_switch_zh }}">中文</a>

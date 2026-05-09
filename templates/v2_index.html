@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}ClipForge Tools 2.0{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero-copy">
+        <span class="eyebrow">ClipForge Tools 2.0</span>
+        <h1>{% if is_zh %}先拆想法，再出分镜图，最后才烧视频成本。{% else %}Turn an idea into prompts, then images, then video.{% endif %}</h1>
+        <p class="hero-text">{% if is_zh %}这一版保留 1.0 的直接生成能力，同时新增更省钱、更可控的 storyboard-first 工作流。每一步都会记录 tokens 和预估费用。{% else %}Keep 1.0 for direct rendering, and use 2.0 for a storyboard-first flow with per-step tokens and estimated cost tracking.{% endif %}</p>
+    </div>
+</section>
+
+<section class="card form-shell">
+    <div class="section-head form-head">
+        <div>
+            <span class="eyebrow">{% if is_zh %}第 0 步{% else %}Step 0{% endif %}</span>
+            <h2>{% if is_zh %}先输入一个简单想法{% else %}Start with a simple idea{% endif %}</h2>
+        </div>
+        <a class="btn ghost" href="/v2/jobs?lang={{ lang }}">{% if is_zh %}查看 2.0 任务{% else %}View 2.0 Jobs{% endif %}</a>
+    </div>
+
+    <form action="/v2/jobs" method="post" class="job-form">
+        <section class="form-section">
+            <div class="form-section-head">
+                <h3>{% if is_zh %}创意输入{% else %}Idea Intake{% endif %}</h3>
+                <p>{% if is_zh %}先别急着填复杂参数。只要说明产品、想法和目标用户，系统会先自动拆分分镜提示词。{% else %}Start with the product, the creative idea, and the audience. The app will first break the idea into storyboard prompts.{% endif %}</p>
+            </div>
+            <div class="grid two">
+                <label>{% if is_zh %}创意标题{% else %}Idea Title{% endif %}
+                    <input type="text" name="idea_title" required value="{{ sample_idea.idea_title }}">
+                </label>
+                <label>{% if is_zh %}项目名称{% else %}Project Name{% endif %}
+                    <input type="text" name="project_name" required value="{{ sample_idea.project_name }}">
+                </label>
+            </div>
+            <div class="grid two">
+                <label>{% if is_zh %}产品名称{% else %}Product Name{% endif %}
+                    <input type="text" name="product_name" required value="{{ sample_idea.product_name }}">
+                </label>
+                <label>{% if is_zh %}目标用户{% else %}Target Audience{% endif %}
+                    <input type="text" name="target_audience" value="{{ sample_idea.target_audience }}">
+                </label>
+            </div>
+            <label>{% if is_zh %}简单描述你的想法{% else %}Describe the idea simply{% endif %}
+                <textarea name="simple_idea" rows="5" required>{{ sample_idea.simple_idea }}</textarea>
+            </label>
+            <label>{% if is_zh %}风格偏好{% else %}Style Preference{% endif %}
+                <textarea name="style_preference" rows="3">{{ sample_idea.style_preference }}</textarea>
+            </label>
+        </section>
+
+        <section class="form-section">
+            <div class="form-section-head">
+                <h3>{% if is_zh %}输出设置{% else %}Output Settings{% endif %}</h3>
+                <p>{% if is_zh %}这里控制最终视频的节奏和发布配置。2.0 会先走 prompt 和 storyboard 阶段。{% else %}These settings control the final video cadence and publishing. 2.0 still goes through prompt and storyboard stages first.{% endif %}</p>
+            </div>
+            <div class="grid three">
+                <label>Video Mode
+                    <select name="video_mode">
+                        <option value="shorts">shorts</option>
+                        <option value="long_video" selected>long_video</option>
+                    </select>
+                </label>
+                <label>Ratio
+                    <select name="ratio">
+                        <option value="9:16" selected>9:16</option>
+                        <option value="16:9">16:9</option>
+                    </select>
+                </label>
+                <label>{% if is_zh %}片段数量{% else %}Clip Count{% endif %}
+                    <select name="clip_count">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="4" selected>4</option>
+                        <option value="20">20</option>
+                    </select>
+                </label>
+            </div>
+            <div class="grid three">
+                <label>{% if is_zh %}单段时长{% else %}Clip Duration{% endif %}
+                    <select name="clip_duration">
+                        <option value="5">5</option>
+                        <option value="10" selected>10</option>
+                        <option value="15">15</option>
+                    </select>
+                </label>
+                <label>Resolution
+                    <select name="resolution">
+                        <option value="480p">480p</option>
+                        <option value="720p" selected>720p</option>
+                    </select>
+                </label>
+                <label>Privacy
+                    <select name="privacy">
+                        <option value="private">private</option>
+                        <option value="unlisted" selected>unlisted</option>
+                        <option value="public">public</option>
+                    </select>
+                </label>
+            </div>
+        </section>
+
+        <section class="form-section">
+            <div class="form-section-head">
+                <h3>YouTube</h3>
+                <p>{% if is_zh %}2.0 默认把发布放在最后一步，但可以提前保存标题和上传账号。{% else %}2.0 keeps publishing as the last step, but you can prefill the title and account now.{% endif %}</p>
+            </div>
+            <div class="grid two">
+                <label>YouTube Title
+                    <input type="text" name="youtube_title" required value="{{ sample_idea.youtube_title }}">
+                </label>
+                <label>{% if is_zh %}上传账号{% else %}Upload Account{% endif %}
+                    <select name="youtube_account_id">
+                        {% if youtube_accounts|length != 1 %}
+                        <option value="">{% if is_zh %}可稍后再选{% else %}Select later if needed{% endif %}</option>
+                        {% endif %}
+                        {% for account in youtube_accounts %}
+                        <option value="{{ account['account_id'] }}" {% if youtube_accounts|length == 1 %}selected{% endif %}>{{ account["display_name"] }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+            <label>YouTube Description
+                <textarea name="youtube_description" rows="4">{{ sample_idea.youtube_description }}</textarea>
+            </label>
+            <label class="checkbox">
+                <input type="checkbox" name="upload_to_youtube" value="true">
+                <span>
+                    <strong>{% if is_zh %}生成最终视频后准备发布{% else %}Prepare for YouTube publishing{% endif %}</strong>
+                    <small>{% if is_zh %}2.0 中发布仍是最后一步，但会保存账号和标题。{% else %}Publishing still happens at the last step in 2.0, but this stores the title and account.{% endif %}</small>
+                </span>
+            </label>
+        </section>
+
+        <div class="form-actions">
+            <button class="btn primary" type="submit">{% if is_zh %}开始 2.0 工作流{% else %}Start 2.0 Workflow{% endif %}</button>
+            <a class="btn ghost" href="/?lang={{ lang }}">{% if is_zh %}返回 1.0{% else %}Back to 1.0{% endif %}</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

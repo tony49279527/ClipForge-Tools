@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}2.0 Job #{{ job["id"] }}{% endblock %}
+
+{% block content %}
+<section class="hero hero-compact">
+    <div class="hero-copy">
+        <span class="eyebrow">ClipForge Tools 2.0</span>
+        <h1>#{{ job["id"] }} · {{ job["idea_title"] or job["project_name"] }}</h1>
+        <p class="hero-text">{{ job["product_name"] }} · {{ stage_label }}</p>
+    </div>
+    <aside class="hero-aside">
+        <div class="hero-panel">
+            <h3>{% if is_zh %}当前状态{% else %}Current stage{% endif %}</h3>
+            <p class="hint compact">{{ job["current_step"] or "-" }}</p>
+        </div>
+    </aside>
+</section>
+
+<section class="card">
+    <div class="section-head">
+        <div>
+            <span class="eyebrow">{% if is_zh %}流程总览{% else %}Workflow Overview{% endif %}</span>
+            <h2>{% if is_zh %}每一步都记录 token 和成本{% else %}Tokens and cost are tracked at every step{% endif %}</h2>
+        </div>
+        <div class="actions">
+            <a class="btn ghost" href="/v2?lang={{ lang }}">{% if is_zh %}新建 2.0 任务{% else %}New 2.0 Job{% endif %}</a>
+            <a class="btn ghost" href="/v2/jobs?lang={{ lang }}">{% if is_zh %}查看任务列表{% else %}View 2.0 Jobs{% endif %}</a>
+        </div>
+    </div>
+
+    <div class="grid three stats-grid">
+        <div class="metric"><span>{% if is_zh %}阶段{% else %}Stage{% endif %}</span><strong id="workflow-stage">{{ stage_label }}</strong></div>
+        <div class="metric"><span>{% if is_zh %}总 Tokens{% else %}Total Tokens{% endif %}</span><strong id="total-tokens">{{ job["total_tokens"] }}</strong></div>
+        <div class="metric"><span>{% if is_zh %}总成本{% else %}Total Cost{% endif %}</span><strong id="total-cost">{{ job["estimated_cost_cny"] }}</strong></div>
+        <div class="metric"><span>Prompt</span><strong id="prompt-cost">{{ job["prompt_total_tokens"] }} / ¥{{ job["prompt_estimated_cost_cny"] }}</strong></div>
+        <div class="metric"><span>Images</span><strong id="image-cost">{{ job["image_total_tokens"] }} / ¥{{ job["image_estimated_cost_cny"] }}</strong></div>
+        <div class="metric"><span>Videos</span><strong id="video-cost">{{ job["video_total_tokens"] }} / ¥{{ job["video_estimated_cost_cny"] }}</strong></div>
+    </div>
+
+    <div class="note">{% if is_zh %}2.0 默认先生成双语 prompt，再生成 storyboard 图，确认后才进入 Seedance 视频阶段。{% else %}2.0 first generates bilingual prompts, then storyboard images, and only after approval moves into the Seedance video stage.{% endif %}</div>
+</section>
+
+<section class="card">
+    <div class="section-head">
+        <div>
+            <span class="eyebrow">{% if is_zh %}第 0 步与第 1 步{% else %}Step 0 + 1{% endif %}</span>
+            <h2>{% if is_zh %}创意与双语分镜提示词{% else %}Idea and bilingual storyboard prompts{% endif %}</h2>
+        </div>
+        <form action="/v2/jobs/{{ job['id'] }}/regenerate-prompts?lang={{ lang }}" method="post">
+            <button class="btn ghost" type="submit">{% if is_zh %}重新拆分提示词{% else %}Regenerate Prompts{% endif %}</button>
+        </form>
+    </div>
+    <div class="note">
+        <strong>{% if is_zh %}原始想法{% else %}Original idea{% endif %}:</strong>
+        {{ job["simple_idea"] or "-" }}
+    </div>
+    <div class="stack">
+        {% for frame in frames %}
+        <article class="frame-card">
+            <div class="frame-head">
+                <div>
+                    <span class="eyebrow">{% if is_zh %}分镜{% else %}Frame{% endif %} {{ frame["clip_index"] }}</span>
+                    <h3>{{ frame["scene_role"] or ("scene_" ~ frame["clip_index"]) }}</h3>
+                </div>
+                <div class="pill-row">
+                    <span class="status {{ frame['image_status'] }}">{{ frame["image_status"] }}</span>
+                    <span class="status {% if frame['user_approved'] %}succeeded{% else %}queued{% endif %}">{% if frame["user_approved"] %}{% if is_zh %}已确认{% else %}Approved{% endif %}{% else %}{% if is_zh %}待确认{% else %}Pending{% endif %}{% endif %}</span>
+                </div>
+            </div>
+
+            <form action="/v2/frames/{{ frame['id'] }}/update-prompts?lang={{ lang }}" method="post" class="frame-form">
+                <div class="grid two">
+                    <label>Prompt ZH
+                        <textarea name="prompt_zh" rows="5">{{ frame["prompt_zh"] or "" }}</textarea>
+                    </label>
+                    <label>Prompt EN
+                        <textarea name="prompt_en" rows="5">{{ frame["prompt_en"] or "" }}</textarea>
+                    </label>
+                </div>
+                <div class="frame-actions">
+                    <button class="btn ghost" type="submit">{% if is_zh %}保存提示词{% else %}Save Prompts{% endif %}</button>
+                    <button class="btn ghost" formaction="/v2/frames/{{ frame['id'] }}/regenerate-image?lang={{ lang }}" formmethod="post" type="submit">{% if is_zh %}重生成该图{% else %}Regenerate Image{% endif %}</button>
+                    <button class="btn ghost" formaction="/v2/frames/{{ frame['id'] }}/approve?lang={{ lang }}" formmethod="post" type="submit">{% if frame["user_approved"] %}{% if is_zh %}取消确认{% else %}Unapprove{% endif %}{% else %}{% if is_zh %}确认此图{% else %}Approve Image{% endif %}{% endif %}</button>
+                </div>
+            </form>
+
+            <div class="grid two storyboard-grid">
+                <div class="storyboard-preview">
+                    {% if frame["image_remote_url"] %}
+                    <img src="{{ frame['image_remote_url'] }}" alt="storyboard frame {{ frame['clip_index'] }}">
+                    {% else %}
+                    <div class="empty-state">{% if is_zh %}尚未生成图片{% else %}No storyboard image yet{% endif %}</div>
+                    {% endif %}
+                </div>
+                <div class="storyboard-meta">
+                    <p><strong>Tokens:</strong> {{ frame["image_tokens"] }}</p>
+                    <p><strong>Cost:</strong> ¥{{ frame["image_estimated_cost_cny"] }}</p>
+                    <p><strong>URL:</strong> {{ frame["image_remote_url"] or "-" }}</p>
+                    <p><strong>{% if is_zh %}版本数{% else %}Versions{% endif %}:</strong> {{ frame["versions"]|length }}</p>
+                </div>
+            </div>
+        </article>
+        {% else %}
+        <div class="empty-state">{% if is_zh %}系统正在准备分镜提示词。{% else %}Storyboard prompts are being prepared.{% endif %}</div>
+        {% endfor %}
+    </div>
+    <div class="form-actions">
+        <form action="/v2/jobs/{{ job['id'] }}/generate-images?lang={{ lang }}" method="post">
+            <button class="btn primary" type="submit">{% if is_zh %}生成 / 重生成全部分镜图{% else %}Generate / Regenerate All Storyboard Images{% endif %}</button>
+        </form>
+    </div>
+</section>
+
+<section class="card">
+    <div class="section-head">
+        <div>
+            <span class="eyebrow">{% if is_zh %}第 2 步{% else %}Step 2{% endif %}</span>
+            <h2>{% if is_zh %}用已确认分镜图生成视频{% else %}Generate video from approved storyboard images{% endif %}</h2>
+        </div>
+        <div class="actions">
+            <form action="/v2/jobs/{{ job['id'] }}/launch-video?lang={{ lang }}" method="post">
+                <button class="btn primary" type="submit">{% if is_zh %}确认进入视频生成{% else %}Launch Video Generation{% endif %}</button>
+            </form>
+            <form action="/v2/jobs/{{ job['id'] }}/publish?lang={{ lang }}" method="post">
+                <button class="btn ghost" type="submit">{% if is_zh %}发布到 YouTube{% else %}Publish to YouTube{% endif %}</button>
+            </form>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>{% if is_zh %}片段{% else %}Clip{% endif %}</th>
+                    <th>{% if is_zh %}状态{% else %}Status{% endif %}</th>
+                    <th>Seedance Task ID</th>
+                    <th>Tokens</th>
+                    <th>{% if is_zh %}成本{% else %}Cost{% endif %}</th>
+                    <th>{% if is_zh %}本地路径{% else %}Local Path{% endif %}</th>
+                </tr>
+            </thead>
+            <tbody id="v2-clips-body">
+                {% for clip in clips %}
+                <tr>
+                    <td>{{ clip["clip_index"] }}</td>
+                    <td>{{ clip["status"] }}</td>
+                    <td>{{ clip["seedance_task_id"] or "-" }}</td>
+                    <td>{{ clip["tokens"] }}</td>
+                    <td>¥{{ clip["estimated_cost_cny"] }}</td>
+                    <td>{{ clip["local_path"] or "-" }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6">{% if is_zh %}视频阶段尚未开始。{% else %}Video generation has not started yet.{% endif %}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="note">
+        <strong>{% if is_zh %}最终视频{% else %}Final video{% endif %}:</strong>
+        {{ job["final_video_path"] or "-" }}
+        {% if job["youtube_url"] %} · <a href="{{ job['youtube_url'] }}" target="_blank">{{ job["youtube_url"] }}</a>{% endif %}
+    </div>
+</section>
+
+<section class="card">
+    <div class="section-head">
+        <div>
+            <span class="eyebrow">{% if is_zh %}成本明细{% else %}Usage Events{% endif %}</span>
+            <h2>{% if is_zh %}每一步消耗记录{% else %}Per-step token and cost log{% endif %}</h2>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Stage</th>
+                    <th>Action</th>
+                    <th>Model</th>
+                    <th>Tokens</th>
+                    <th>Cost</th>
+                    <th>Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in usage_events %}
+                <tr>
+                    <td>{{ event["stage"] }}</td>
+                    <td>{{ event["action"] }}</td>
+                    <td>{{ event["model_name"] or "-" }}</td>
+                    <td>{{ event["total_tokens"] }}</td>
+                    <td>¥{{ event["estimated_cost_cny"] }}</td>
+                    <td>{{ event["created_at"] }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6">{% if is_zh %}还没有成本记录。{% else %}No usage events yet.{% endif %}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<script>
+const v2JobId = {{ job["id"] }};
+async function refreshV2Status() {
+    const response = await fetch(`/v2/jobs/${v2JobId}/status`);
+    const data = await response.json();
+    document.getElementById("workflow-stage").textContent = data.job.workflow_stage || "-";
+    document.getElementById("total-tokens").textContent = data.job.total_tokens || 0;
+    document.getElementById("total-cost").textContent = data.job.estimated_cost_cny || 0;
+    document.getElementById("prompt-cost").textContent = `${data.job.prompt_total_tokens || 0} / ¥${data.job.prompt_estimated_cost_cny || 0}`;
+    document.getElementById("image-cost").textContent = `${data.job.image_total_tokens || 0} / ¥${data.job.image_estimated_cost_cny || 0}`;
+    document.getElementById("video-cost").textContent = `${data.job.video_total_tokens || 0} / ¥${data.job.video_estimated_cost_cny || 0}`;
+    if (!["succeeded", "failed"].includes(data.job.status)) {
+        window.setTimeout(refreshV2Status, 5000);
+    }
+}
+refreshV2Status();
+</script>
+{% endblock %}

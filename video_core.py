@@ -9,13 +9,18 @@ import requests
 from requests import HTTPError
 
 from db import (
+    create_clip_records,
+    delete_clips_for_job,
+    get_current_frame_image_version,
     get_job_by_id,
+    get_storyboard_frames,
     init_db,
     sum_clip_metrics,
     update_clip_by_job_and_index,
     update_job_fields,
 )
 from youtube_core import upload_youtube
+from usage_core import record_usage, refresh_job_usage_totals
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(BASE_DIR / "uploads"))).resolve()
@@ -320,6 +325,38 @@ def upload_to_object_storage(file_path: Path) -> Optional[str]:
     return None
 
 
+def build_storyboard_video_specs(job: Dict[str, Any]) -> List[Dict[str, Any]]:
+    frames = get_storyboard_frames(job["id"])
+    approved_frames = [frame for frame in frames if int(frame["selected_for_video"] or 0) == 1]
+    if not approved_frames:
+        raise RuntimeError("No storyboard frames are selected for video generation.")
+
+    missing_approvals = [frame["clip_index"] for frame in approved_frames if int(frame["user_approved"] or 0) != 1]
+    if missing_approvals:
+        raise RuntimeError(f"Storyboard frames not approved yet: {missing_approvals}")
+
+    specs: List[Dict[str, Any]] = []
+    for frame in approved_frames:
+        current_version = get_current_frame_image_version(frame["id"])
+        reference_image_url = None
+        if current_version:
+            reference_image_url = current_version["image_remote_url"] or frame["image_remote_url"]
+        if not reference_image_url:
+            raise RuntimeError(
+                f"Storyboard frame {frame['clip_index']} does not have a public image URL for Seedance."
+            )
+        specs.append(
+            {
+                "clip_index": frame["clip_index"],
+                "frame_id": frame["id"],
+                "prompt": frame["prompt_en"] or frame["prompt_zh"],
+                "reference_image_url": reference_image_url,
+                "image_version_id": current_version["id"] if current_version else None,
+            }
+        )
+    return specs
+
+
 def run_video_job(job_id: int) -> None:
     ensure_runtime_dirs()
     job = get_job_by_id(job_id)
@@ -387,6 +424,17 @@ def run_video_job(job_id: int) -> None:
                     "estimated_cost_cny": cost,
                 },
             )
+            record_usage(
+                job_id=job_id,
+                stage="video_generation",
+                entity_type="clip",
+                entity_id=clip_index,
+                action="generate_video",
+                model_name=SEEDANCE_MODEL,
+                total_tokens=total_tokens,
+                estimated_cost_cny=cost,
+                raw_usage=task_result.get("usage") or {},
+            )
             metrics = sum_clip_metrics(job_id)
             update_job_fields(
                 job_id,
@@ -416,6 +464,16 @@ def run_video_job(job_id: int) -> None:
                 privacy=job["privacy"],
                 account_id=job["youtube_account_id"] or None,
             )
+            record_usage(
+                job_id=job_id,
+                stage="publishing",
+                entity_type="job",
+                entity_id=job_id,
+                action="upload_youtube",
+                model_name="youtube.videos.insert",
+                total_tokens=0,
+                estimated_cost_cny=0,
+            )
             update_job_fields(job_id, {"youtube_url": youtube_url})
 
         update_job_fields(job_id, {"status": "succeeded", "current_step": "Completed"})
@@ -433,6 +491,116 @@ def run_video_job(job_id: int) -> None:
             job_id,
             {
                 "status": "failed",
+                "current_step": "Failed",
+                "error_message": str(exc),
+            },
+        )
+
+
+def run_storyboard_video_job(job_id: int) -> None:
+    ensure_runtime_dirs()
+    job = get_job_by_id(job_id)
+    if not job:
+        return
+
+    job_output_dir = OUTPUTS_DIR / str(job_id)
+    clips_dir = job_output_dir / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    current_clip_index: Optional[int] = None
+
+    try:
+        update_job_fields(
+            job_id,
+            {
+                "status": "running",
+                "workflow_stage": "videos_generating",
+                "current_step": "Preparing approved storyboard frames",
+                "error_message": None,
+            },
+        )
+        specs = build_storyboard_video_specs(job)
+        delete_clips_for_job(job_id)
+        create_clip_records(job_id=job_id, clip_count=len(specs))
+        clip_paths: List[Path] = []
+
+        for spec in specs:
+            clip_index = spec["clip_index"]
+            current_clip_index = clip_index
+            update_job_fields(
+                job_id,
+                {
+                    "status": "generating_clips",
+                    "workflow_stage": "videos_generating",
+                    "current_step": f"Generating clip {clip_index}/{len(specs)} from storyboard",
+                },
+            )
+            update_clip_by_job_and_index(
+                job_id,
+                clip_index,
+                {
+                    "frame_id": spec["frame_id"],
+                    "video_prompt_en": spec["prompt"],
+                    "reference_image_url": spec["reference_image_url"],
+                    "selected_image_version_id": spec["image_version_id"],
+                    "status": "running",
+                },
+            )
+            seedance_task_id = create_seedance_task(
+                prompt=spec["prompt"],
+                ratio=job["ratio"],
+                duration=job["clip_duration"],
+                resolution=job["resolution"],
+                reference_image_url=spec["reference_image_url"],
+            )
+            update_clip_by_job_and_index(job_id, clip_index, {"seedance_task_id": seedance_task_id, "status": "submitted"})
+            task_result = wait_seedance_task(seedance_task_id)
+            video_url = extract_video_url(task_result)
+            total_tokens = extract_total_tokens(task_result)
+            cost = estimate_cost_cny(total_tokens)
+            output_path = clips_dir / f"clip_{clip_index:02d}.mp4"
+            download_video(video_url, output_path)
+            clip_paths.append(output_path)
+            update_clip_by_job_and_index(
+                job_id,
+                clip_index,
+                {
+                    "status": "succeeded",
+                    "local_path": str(output_path),
+                    "tokens": total_tokens,
+                    "estimated_cost_cny": cost,
+                },
+            )
+            record_usage(
+                job_id=job_id,
+                stage="video_generation",
+                entity_type="clip",
+                entity_id=clip_index,
+                action="generate_video",
+                model_name=SEEDANCE_MODEL,
+                total_tokens=total_tokens,
+                estimated_cost_cny=cost,
+                raw_usage=task_result.get("usage") or {},
+            )
+
+        final_video_path = None
+        if int(job["stitch_final_video"]) == 1:
+            update_job_fields(job_id, {"status": "stitching", "current_step": "Concatenating clips"})
+            final_video_path = concat_clips(clip_paths, job_output_dir / "final_video.mp4")
+            update_job_fields(job_id, {"final_video_path": str(final_video_path)})
+        elif clip_paths:
+            final_video_path = clip_paths[0]
+            update_job_fields(job_id, {"final_video_path": str(final_video_path)})
+
+        refresh_job_usage_totals(job_id)
+        update_job_fields(job_id, {"status": "succeeded", "workflow_stage": "videos_ready", "current_step": "Video generation completed"})
+    except Exception as exc:
+        if current_clip_index is not None:
+            update_clip_by_job_and_index(job_id, current_clip_index, {"status": "failed", "error_message": str(exc)})
+        update_job_fields(
+            job_id,
+            {
+                "status": "failed",
+                "workflow_stage": "failed",
                 "current_step": "Failed",
                 "error_message": str(exc),
             },

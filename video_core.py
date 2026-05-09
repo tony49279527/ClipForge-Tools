@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import base64
 import requests
 from requests import HTTPError
 
@@ -342,8 +343,20 @@ def build_storyboard_video_specs(job: Dict[str, Any]) -> List[Dict[str, Any]]:
         if current_version:
             reference_image_url = current_version["image_remote_url"] or frame["image_remote_url"]
         if not reference_image_url:
+            # Fallback: read local file and encode as base64 data URI so Seedance can consume it
+            local_path_str = (current_version["image_local_path"] if current_version else None) or frame.get("image_local_path")
+            if local_path_str:
+                local_path = Path(local_path_str)
+                if local_path.exists():
+                    with local_path.open("rb") as f:
+                        image_bytes = f.read()
+                    ext = local_path.suffix.lstrip(".")
+                    if ext not in ("png", "jpg", "jpeg", "webp"):
+                        ext = "png"
+                    reference_image_url = f"data:image/{ext};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        if not reference_image_url:
             raise RuntimeError(
-                f"Storyboard frame {frame['clip_index']} does not have a public image URL for Seedance."
+                f"Storyboard frame {frame['clip_index']} does not have a public image URL or local image file for Seedance."
             )
         specs.append(
             {

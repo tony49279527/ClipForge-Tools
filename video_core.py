@@ -37,7 +37,7 @@ COST_PER_MILLION_TOKENS_CNY = float(os.getenv("PRICE_PER_MILLION_TOKENS_CNY", "4
 SEEDANCE_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 # Default to the known-working Seedance model for this account. Override with
 # SEEDANCE_MODEL only when you've confirmed endpoint access for another model.
-SEEDANCE_MODEL = os.getenv("SEEDANCE_MODEL", "doubao-seedance-1-0-pro-250528")
+SEEDANCE_MODEL = os.getenv("SEEDANCE_MODEL", "doubao-seedance-2-0-pro")
 
 STYLE_PREFIX = (
     "真实美国车库五金工具广告风格。场景为美国家庭车库、木质工作台、红色工具箱、墙面 pegboard、bench grinder、"

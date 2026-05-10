@@ -412,48 +412,74 @@ def run_video_job(job_id: int) -> None:
                 },
             )
 
-            seedance_task_id = create_seedance_task(
-                prompt=spec["prompt"],
-                ratio=job["ratio"],
-                duration=job["clip_duration"],
-                resolution=job["resolution"],
-                reference_image_url=spec["reference_image_url"],
-            )
-            update_clip_by_job_and_index(
-                job_id,
-                clip_index,
-                {"seedance_task_id": seedance_task_id, "status": "submitted"},
-            )
+            try:
+                # --- Step 1: Create Task with Privacy Retry ---
+                try:
+                    seedance_task_id = create_seedance_task(
+                        prompt=spec["prompt"],
+                        ratio=job["ratio"],
+                        duration=job["clip_duration"],
+                        resolution=job["resolution"],
+                        reference_image_url=spec["reference_image_url"],
+                    )
+                except Exception as e:
+                    if "InputImageSensitiveContentDetected" in str(e) and spec["reference_image_url"]:
+                        print(f"Clip {clip_index}: Privacy block. Retrying WITHOUT reference image...")
+                        seedance_task_id = create_seedance_task(
+                            prompt=spec["prompt"],
+                            ratio=job["ratio"],
+                            duration=job["clip_duration"],
+                            resolution=job["resolution"],
+                            reference_image_url=None, # Retry without image
+                        )
+                    else:
+                        raise e
 
-            task_result = wait_seedance_task(seedance_task_id)
-            video_url = extract_video_url(task_result)
-            total_tokens = extract_total_tokens(task_result)
-            cost = estimate_cost_cny(total_tokens)
-            output_path = clips_dir / f"clip_{clip_index:02d}.mp4"
-            download_video(video_url, output_path)
-            clip_paths.append(output_path)
+                update_clip_by_job_and_index(
+                    job_id,
+                    clip_index,
+                    {"seedance_task_id": seedance_task_id, "status": "submitted"},
+                )
 
-            update_clip_by_job_and_index(
-                job_id,
-                clip_index,
-                {
-                    "status": "succeeded",
-                    "local_path": str(output_path),
-                    "tokens": total_tokens,
-                    "estimated_cost_cny": cost,
-                },
-            )
-            record_usage(
-                job_id=job_id,
-                stage="video_generation",
-                entity_type="clip",
-                entity_id=clip_index,
-                action="generate_video",
-                model_name=SEEDANCE_MODEL,
-                total_tokens=total_tokens,
-                estimated_cost_cny=cost,
-                raw_usage=task_result.get("usage") or {},
-            )
+                # --- Step 2: Wait and Download ---
+                task_result = wait_seedance_task(seedance_task_id)
+                video_url = extract_video_url(task_result)
+                total_tokens = extract_total_tokens(task_result)
+                cost = estimate_cost_cny(total_tokens)
+                output_path = clips_dir / f"clip_{clip_index:02d}.mp4"
+                download_video(video_url, output_path)
+                clip_paths.append(output_path)
+
+                update_clip_by_job_and_index(
+                    job_id,
+                    clip_index,
+                    {
+                        "status": "succeeded",
+                        "local_path": str(output_path),
+                        "tokens": total_tokens,
+                        "estimated_cost_cny": cost,
+                    },
+                )
+                record_usage(
+                    job_id=job_id,
+                    stage="video_generation",
+                    entity_type="clip",
+                    entity_id=clip_index,
+                    action="generate_video",
+                    model_name=SEEDANCE_MODEL,
+                    total_tokens=total_tokens,
+                    estimated_cost_cny=cost,
+                    raw_usage=task_result.get("usage") or {},
+                )
+            except Exception as clip_exc:
+                print(f"Clip {clip_index} failed: {clip_exc}")
+                update_clip_by_job_and_index(
+                    job_id,
+                    clip_index,
+                    {"status": "failed", "error_message": str(clip_exc)},
+                )
+                # Continue to next clip...
+
             metrics = sum_clip_metrics(job_id)
             update_job_fields(
                 job_id,

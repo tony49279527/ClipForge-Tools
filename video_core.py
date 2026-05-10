@@ -37,7 +37,7 @@ COST_PER_MILLION_TOKENS_CNY = float(os.getenv("PRICE_PER_MILLION_TOKENS_CNY", "4
 SEEDANCE_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 # Default to the known-working Seedance model for this account. Override with
 # SEEDANCE_MODEL only when you've confirmed endpoint access for another model.
-SEEDANCE_MODEL = os.getenv("SEEDANCE_MODEL", "doubao-seedance-2-0-pro")
+SEEDANCE_MODEL = os.getenv("SEEDANCE_MODEL", "doubao-seedance-2-0-260128")
 
 STYLE_PREFIX = (
     "真实美国车库五金工具广告风格。场景为美国家庭车库、木质工作台、红色工具箱、墙面 pegboard、bench grinder、"
@@ -128,21 +128,18 @@ def build_clip_prompts(job: Dict[str, Any]) -> List[Dict[str, Optional[str]]]:
     return prompts
 
 
-def build_seedance_content(
-    prompt: str,
-    reference_image_url: Optional[str] = None,
-) -> List[Dict]:
+
+
+
+def build_seedance_content(prompt: str, reference_image_url: Optional[str] = None) -> List[Dict]:
     content = [{"type": "text", "text": prompt}]
     if reference_image_url:
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": reference_image_url},
-                "role": "first_frame",
-            }
-        )
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": reference_image_url},
+            "role": "reference_image"
+        })
     return content
-
 
 def build_seedance_payload(
     prompt: str,
@@ -154,10 +151,11 @@ def build_seedance_payload(
     content = build_seedance_content(prompt, reference_image_url)
     return {
         "model": SEEDANCE_MODEL,
+        "content": content,
+        "generate_audio": True,
         "ratio": ratio,
         "duration": duration,
-        "resolution": resolution,
-        "content": content,
+        "watermark": False,
     }
 
 

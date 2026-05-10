@@ -413,7 +413,7 @@ def run_video_job(job_id: int) -> None:
             )
 
             try:
-                # --- Step 1: Create Task with Privacy Retry ---
+                # --- Step 1: Create Task with Image-Error Retry ---
                 try:
                     seedance_task_id = create_seedance_task(
                         prompt=spec["prompt"],
@@ -423,14 +423,21 @@ def run_video_job(job_id: int) -> None:
                         reference_image_url=spec["reference_image_url"],
                     )
                 except Exception as e:
-                    if "InputImageSensitiveContentDetected" in str(e) and spec["reference_image_url"]:
-                        print(f"Clip {clip_index}: Privacy block. Retrying WITHOUT reference image...")
+                    # Retry WITHOUT reference image if:
+                    # 1. Sensitive content detected
+                    # 2. Invalid parameter (like image too large)
+                    error_msg = str(e)
+                    is_image_error = "InputImageSensitiveContentDetected" in error_msg or \
+                                     ("InvalidParameter" in error_msg and "image" in error_msg.lower())
+                    
+                    if is_image_error and spec["reference_image_url"]:
+                        print(f"Clip {clip_index}: Image issue detected ({error_msg}). Retrying WITHOUT reference image...")
                         seedance_task_id = create_seedance_task(
                             prompt=spec["prompt"],
                             ratio=job["ratio"],
                             duration=job["clip_duration"],
                             resolution=job["resolution"],
-                            reference_image_url=None, # Retry without image
+                            reference_image_url=None, # Drop the problematic image
                         )
                     else:
                         raise e

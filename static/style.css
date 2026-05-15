@@ -576,6 +576,103 @@ tbody tr:last-child td {
     font-family: 'Outfit', sans-serif;
 }
 
+/* Template Presets Bar */
+.template-bar {
+    margin: 24px 0 32px;
+    padding: 16px 20px;
+    background: rgba(139, 92, 246, 0.06);
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    border-radius: var(--radius-md);
+}
+
+.template-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.template-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    white-space: nowrap;
+}
+
+.template-select {
+    flex: 1;
+    min-width: 200px;
+    padding: 10px 14px;
+    font-size: 0.95rem;
+}
+
+.template-bar .btn.ghost {
+    padding: 10px 16px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+/* Cost Estimate Panel */
+.cost-estimate {
+    margin: 32px 0;
+    padding: 24px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-md);
+}
+
+.cost-estimate-head {
+    margin-bottom: 16px;
+}
+
+.cost-estimate-head .eyebrow {
+    display: block;
+    color: var(--accent);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+}
+
+.cost-estimate-head h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.cost-estimate .stats-grid .metric {
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius-sm);
+}
+
+.cost-estimate .stats-grid .metric strong {
+    font-size: 1.2rem;
+}
+
+.cost-estimate-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--panel-border);
+}
+
+.cost-estimate-total span {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+}
+
+.cost-estimate-total strong {
+    font-size: 1.8rem;
+    color: var(--accent);
+    font-family: 'Outfit', sans-serif;
+}
+
 /* Media Queries */
 @media (max-width: 768px) {
     .hero, .grid.two, .grid.three {

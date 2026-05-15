@@ -2,6 +2,8 @@ import json
 import os
 import subprocess
 import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -668,3 +670,411 @@ def run_storyboard_video_job(job_id: int) -> None:
                 "error_message": str(exc),
             },
         )
+
+
+# ======================================================================
+# Parallel clip generation (used by RQ task queue)
+# ======================================================================
+
+MAX_CLIP_WORKERS = int(os.getenv("MAX_CLIP_WORKERS", "4"))
+
+
+def _is_reference_image_retryable(error_msg: str) -> bool:
+    lowered_error = error_msg.lower()
+    return "InputImageSensitiveContentDetected" in error_msg or (
+        "InvalidParameter" in error_msg and "image" in lowered_error
+    )
+
+
+def _ensure_at_least_one_successful_clip(job_id: int, clip_paths: List[Path], expected_count: int) -> None:
+    if clip_paths:
+        return
+    raise RuntimeError(
+        f"All {expected_count} clip generations failed for job {job_id}."
+    )
+
+
+def _generate_single_clip(
+    job_id: int,
+    spec: Dict[str, Any],
+    clips_dir: Path,
+    job: Dict[str, Any],
+) -> Optional[Path]:
+    """Generate a single clip: create Seedance task, wait, download.
+    Returns the clip path on success, None on failure.
+    """
+    clip_index = spec["clip_index"]
+    try:
+        update_clip_by_job_and_index(
+            job_id,
+            clip_index,
+            {
+                "prompt": spec["prompt"],
+                "reference_image_url": spec.get("reference_image_url"),
+                "status": "running",
+            },
+        )
+
+        # --- Step 1: Create Task with Image-Error Retry ---
+        try:
+            seedance_task_id = create_seedance_task(
+                prompt=spec["prompt"],
+                ratio=job["ratio"],
+                duration=job["clip_duration"],
+                resolution=job["resolution"],
+                reference_image_url=spec.get("reference_image_url"),
+            )
+        except Exception as e:
+            error_msg = str(e)
+            is_image_error = _is_reference_image_retryable(error_msg)
+            if is_image_error and spec.get("reference_image_url"):
+                print(f"Clip {clip_index}: Image issue, retrying WITHOUT reference image...")
+                seedance_task_id = create_seedance_task(
+                    prompt=spec["prompt"],
+                    ratio=job["ratio"],
+                    duration=job["clip_duration"],
+                    resolution=job["resolution"],
+                    reference_image_url=None,
+                )
+            else:
+                raise e
+
+        update_clip_by_job_and_index(
+            job_id, clip_index,
+            {"seedance_task_id": seedance_task_id, "status": "submitted"},
+        )
+
+        # --- Step 2: Wait and Download ---
+        task_result = wait_seedance_task(seedance_task_id)
+        video_url = extract_video_url(task_result)
+        total_tokens = extract_total_tokens(task_result)
+        cost = estimate_cost_cny(total_tokens)
+        output_path = clips_dir / f"clip_{clip_index:02d}.mp4"
+        download_video(video_url, output_path)
+
+        update_clip_by_job_and_index(
+            job_id,
+            clip_index,
+            {
+                "status": "succeeded",
+                "local_path": str(output_path),
+                "tokens": total_tokens,
+                "estimated_cost_cny": cost,
+            },
+        )
+        record_usage(
+            job_id=job_id,
+            stage="video_generation",
+            entity_type="clip",
+            entity_id=clip_index,
+            action="generate_video",
+            model_name=SEEDANCE_MODEL,
+            total_tokens=total_tokens,
+            estimated_cost_cny=cost,
+            raw_usage=task_result.get("usage") or {},
+        )
+        return output_path
+    except Exception as clip_exc:
+        print(f"Clip {clip_index} failed: {clip_exc}")
+        traceback.print_exc()
+        update_clip_by_job_and_index(
+            job_id,
+            clip_index,
+            {"status": "failed", "error_message": str(clip_exc)},
+        )
+        return None
+
+
+def run_video_job_parallel(job_id: int) -> Dict[str, Any]:
+    """Run a 1.0 video job with parallel clip generation using ThreadPoolExecutor."""
+    job = get_job_by_id(job_id)
+    if not job:
+        return {"job_id": job_id, "status": "not_found"}
+
+    job_output_dir = OUTPUTS_DIR / str(job_id)
+    clips_dir = job_output_dir / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        update_job_fields(job_id, {"status": "running", "current_step": "preparing prompts"})
+        prompt_specs = build_clip_prompts(job)
+
+        # --- Parallel clip generation ---
+        max_workers = min(MAX_CLIP_WORKERS, len(prompt_specs))
+        update_job_fields(
+            job_id,
+            {
+                "status": "generating_clips",
+                "current_step": f"Generating {len(prompt_specs)} clips in parallel (max {max_workers} workers)",
+            },
+        )
+
+        clip_paths: List[Path] = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(
+                    _generate_single_clip, job_id, spec, clips_dir, job
+                ): spec["clip_index"]
+                for spec in prompt_specs
+            }
+            for future in as_completed(future_map):
+                clip_index = future_map[future]
+                try:
+                    result = future.result()
+                    if result:
+                        clip_paths.append(result)
+                except Exception as exc:
+                    print(f"Unexpected error in clip {clip_index}: {exc}")
+
+        # Sort clip paths by clip_index for consistent stitching order
+        _ensure_at_least_one_successful_clip(job_id, clip_paths, len(prompt_specs))
+        clip_paths.sort(key=lambda p: int(p.stem.split("_")[1]))
+
+        # Update aggregated metrics
+        metrics = sum_clip_metrics(job_id)
+        update_job_fields(
+            job_id,
+            {
+                "total_tokens": metrics["total_tokens"],
+                "estimated_cost_cny": round(metrics["estimated_cost_cny"], 4),
+            },
+        )
+
+        # --- Stitching ---
+        final_video_path = None
+        if int(job["stitch_final_video"]) == 1 and clip_paths:
+            update_job_fields(job_id, {"status": "stitching", "current_step": "Concatenating clips"})
+            final_video_path = concat_clips(clip_paths, job_output_dir / "final_video.mp4")
+            update_job_fields(job_id, {"final_video_path": str(final_video_path)})
+        elif clip_paths:
+            final_video_path = clip_paths[0]
+            update_job_fields(job_id, {"final_video_path": str(final_video_path)})
+
+        # --- YouTube Upload ---
+        youtube_url = None
+        if int(job["upload_to_youtube"]) == 1 and final_video_path:
+            update_job_fields(job_id, {"status": "uploading", "current_step": "Uploading to YouTube"})
+            youtube_url = upload_youtube(
+                video_path=final_video_path,
+                title=job["youtube_title"],
+                description=job["youtube_description"],
+                tags=[job["product_name"], job["project_name"], "tools", "amazon"],
+                privacy=job["privacy"],
+                account_id=job["youtube_account_id"] or None,
+            )
+            record_usage(
+                job_id=job_id,
+                stage="publishing",
+                entity_type="job",
+                entity_id=job_id,
+                action="upload_youtube",
+                model_name="youtube.videos.insert",
+                total_tokens=0,
+                estimated_cost_cny=0,
+            )
+            update_job_fields(job_id, {"youtube_url": youtube_url})
+
+        update_job_fields(job_id, {"status": "succeeded", "current_step": "Completed"})
+        return {"job_id": job_id, "status": "succeeded", "clips": len(clip_paths), "final_video": str(final_video_path) if final_video_path else None}
+
+    except Exception as exc:
+        print(f"Job {job_id} failed: {exc}")
+        traceback.print_exc()
+        update_job_fields(
+            job_id,
+            {
+                "status": "failed",
+                "current_step": "Failed",
+                "error_message": str(exc),
+            },
+        )
+        return {"job_id": job_id, "status": "failed", "error": str(exc)}
+
+
+def _generate_single_storyboard_clip(
+    job_id: int,
+    spec: Dict[str, Any],
+    clips_dir: Path,
+    job: Dict[str, Any],
+) -> Optional[Path]:
+    """Generate a single storyboard clip (with optional prompt enhancement)."""
+    clip_index = spec["clip_index"]
+    try:
+        update_clip_by_job_and_index(
+            job_id,
+            clip_index,
+            {
+                "frame_id": spec["frame_id"],
+                "video_prompt_en": spec["prompt"],
+                "reference_image_url": spec["reference_image_url"],
+                "selected_image_version_id": spec.get("image_version_id"),
+                "status": "running",
+            },
+        )
+
+        video_prompt = spec["prompt"]
+        if enhance_video_prompt is not None:
+            frame_meta = get_storyboard_frame(spec["frame_id"])
+            video_prompt = enhance_video_prompt(
+                original_prompt=spec["prompt"],
+                product_name=job.get("product_name", ""),
+                scene_role=frame_meta["scene_role"] if frame_meta else "scene",
+                clip_duration=job.get("clip_duration", 10),
+                ratio=job.get("ratio", "9:16"),
+            )
+
+        try:
+            seedance_task_id = create_seedance_task(
+                prompt=video_prompt,
+                ratio=job["ratio"],
+                duration=job["clip_duration"],
+                resolution=job["resolution"],
+                reference_image_url=spec["reference_image_url"],
+            )
+        except Exception as exc:
+            error_msg = str(exc)
+            if _is_reference_image_retryable(error_msg) and spec.get("reference_image_url"):
+                print(f"Storyboard clip {clip_index}: Image issue, retrying WITHOUT reference image...")
+                seedance_task_id = create_seedance_task(
+                    prompt=video_prompt,
+                    ratio=job["ratio"],
+                    duration=job["clip_duration"],
+                    resolution=job["resolution"],
+                    reference_image_url=None,
+                )
+            else:
+                raise
+        update_clip_by_job_and_index(
+            job_id, clip_index,
+            {"seedance_task_id": seedance_task_id, "status": "submitted"},
+        )
+
+        task_result = wait_seedance_task(seedance_task_id)
+        video_url = extract_video_url(task_result)
+        total_tokens = extract_total_tokens(task_result)
+        cost = estimate_cost_cny(total_tokens)
+        output_path = clips_dir / f"clip_{clip_index:02d}.mp4"
+        download_video(video_url, output_path)
+
+        update_clip_by_job_and_index(
+            job_id,
+            clip_index,
+            {
+                "status": "succeeded",
+                "local_path": str(output_path),
+                "tokens": total_tokens,
+                "estimated_cost_cny": cost,
+            },
+        )
+        record_usage(
+            job_id=job_id,
+            stage="video_generation",
+            entity_type="clip",
+            entity_id=clip_index,
+            action="generate_video",
+            model_name=SEEDANCE_MODEL,
+            total_tokens=total_tokens,
+            estimated_cost_cny=cost,
+            raw_usage=task_result.get("usage") or {},
+        )
+        return output_path
+    except Exception as clip_exc:
+        print(f"Storyboard clip {clip_index} failed: {clip_exc}")
+        traceback.print_exc()
+        update_clip_by_job_and_index(
+            job_id,
+            clip_index,
+            {"status": "failed", "error_message": str(clip_exc)},
+        )
+        return None
+
+
+def run_storyboard_video_job_parallel(job_id: int) -> Dict[str, Any]:
+    """Run a 2.0 storyboard video job with parallel clip generation."""
+    job = get_job_by_id(job_id)
+    if not job:
+        return {"job_id": job_id, "status": "not_found"}
+
+    job_output_dir = OUTPUTS_DIR / str(job_id)
+    clips_dir = job_output_dir / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        update_job_fields(
+            job_id,
+            {
+                "status": "running",
+                "workflow_stage": "videos_generating",
+                "current_step": "Preparing approved storyboard frames",
+                "error_message": None,
+            },
+        )
+        specs = build_storyboard_video_specs(job)
+        delete_clips_for_job(job_id)
+        create_clip_records(job_id=job_id, clip_count=len(specs))
+
+        # --- Parallel clip generation ---
+        max_workers = min(MAX_CLIP_WORKERS, len(specs))
+        update_job_fields(
+            job_id,
+            {
+                "status": "generating_clips",
+                "workflow_stage": "videos_generating",
+                "current_step": f"Generating {len(specs)} storyboard clips in parallel (max {max_workers} workers)",
+            },
+        )
+
+        clip_paths: List[Path] = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(
+                    _generate_single_storyboard_clip, job_id, spec, clips_dir, job
+                ): spec["clip_index"]
+                for spec in specs
+            }
+            for future in as_completed(future_map):
+                clip_index = future_map[future]
+                try:
+                    result = future.result()
+                    if result:
+                        clip_paths.append(result)
+                except Exception as exc:
+                    print(f"Unexpected error in storyboard clip {clip_index}: {exc}")
+
+        _ensure_at_least_one_successful_clip(job_id, clip_paths, len(specs))
+        clip_paths.sort(key=lambda p: int(p.stem.split("_")[1]))
+
+        # --- Stitching ---
+        final_video_path = None
+        if int(job["stitch_final_video"]) == 1 and clip_paths:
+            update_job_fields(job_id, {"status": "stitching", "workflow_stage": "videos_generating", "current_step": "Concatenating clips"})
+            final_video_path = concat_clips(clip_paths, job_output_dir / "final_video.mp4")
+            update_job_fields(job_id, {"final_video_path": str(final_video_path)})
+        elif clip_paths:
+            final_video_path = clip_paths[0]
+            update_job_fields(job_id, {"final_video_path": str(final_video_path)})
+
+        refresh_job_usage_totals(job_id)
+        update_job_fields(
+            job_id,
+            {
+                "status": "succeeded",
+                "workflow_stage": "videos_ready",
+                "current_step": "Video generation completed",
+            },
+        )
+        return {"job_id": job_id, "status": "succeeded", "clips": len(clip_paths), "final_video": str(final_video_path) if final_video_path else None}
+
+    except Exception as exc:
+        print(f"Storyboard job {job_id} failed: {exc}")
+        traceback.print_exc()
+        update_job_fields(
+            job_id,
+            {
+                "status": "failed",
+                "workflow_stage": "failed",
+                "current_step": "Failed",
+                "error_message": str(exc),
+            },
+        )
+        return {"job_id": job_id, "status": "failed", "error": str(exc)}

@@ -63,6 +63,14 @@
         </div>
         <p class="hint" id="progress-text" style="font-size: 14px; font-weight: 500; margin-top: 8px;">{% if is_zh %}正在准备进度信息...{% else %}Preparing progress...{% endif %}</p>
         
+        <!-- Video Preview Player -->
+        <div id="video-preview-wrap" style="display: none; margin-top: 24px;">
+            <h3 style="margin-bottom: 12px;">{% if is_zh %}视频预览{% else %}Video Preview{% endif %}</h3>
+            <video id="video-preview" controls preload="metadata" style="width: 100%; max-height: 480px; border-radius: var(--radius-md); background: #000;">
+                <p>{% if is_zh %}您的浏览器不支持视频播放。{% else %}Your browser does not support video playback.{% endif %}</p>
+            </video>
+        </div>
+        
         <!-- Prominent YouTube Success Banner -->
         <div id="youtube-success-banner" style="display: none; margin-top: 20px; padding: 20px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
             <div style="color: #166534; font-size: 18px; font-weight: 700; margin-bottom: 8px;">🎉 {% if is_zh %}视频已成功发布到 YouTube！{% else %}Video successfully published to YouTube!{% endif %}</div>
@@ -199,10 +207,27 @@
         `).join("");
     }
 
+    // Video preview: show player when final_video_path is available
+    function updateVideoPreview(job) {
+        const wrap = document.getElementById("video-preview-wrap");
+        const player = document.getElementById("video-preview");
+        if (job.final_video_path) {
+            // Serve video file via a simple endpoint
+            const videoUrl = `/jobs/${jobId}/video`;
+            player.src = videoUrl;
+            player.load();
+            wrap.style.display = "block";
+        } else {
+            wrap.style.display = "none";
+            player.removeAttribute("src");
+        }
+    }
+
     async function refreshStatus() {
         const response = await fetch(`/jobs/${jobId}/status`);
         const data = await response.json();
         renderProgress(data.job, data.clips);
+        updateVideoPreview(data.job);
         if (!["succeeded", "failed"].includes(data.job.status)) {
             window.setTimeout(refreshStatus, 5000);
         }

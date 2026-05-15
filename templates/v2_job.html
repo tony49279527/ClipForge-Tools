@@ -173,6 +173,14 @@
             </tbody>
         </table>
     </div>
+    <!-- Video Preview Player -->
+    <div id="v2-video-preview-wrap" style="display: none; margin-top: 24px;">
+        <h3 style="margin-bottom: 12px;">{% if is_zh %}视频预览{% else %}Video Preview{% endif %}</h3>
+        <video id="v2-video-preview" controls preload="metadata" style="width: 100%; max-height: 480px; border-radius: var(--radius-md); background: #000;">
+            <p>{% if is_zh %}您的浏览器不支持视频播放。{% else %}Your browser does not support video playback.{% endif %}</p>
+        </video>
+    </div>
+
     <div class="note">
         <strong>{% if is_zh %}最终视频{% else %}Final video{% endif %}:</strong>
         {{ job["final_video_path"] or "-" }}
@@ -219,6 +227,21 @@
 
 <script>
 const v2JobId = {{ job["id"] }};
+
+function updateV2VideoPreview(job) {
+    const wrap = document.getElementById("v2-video-preview-wrap");
+    const player = document.getElementById("v2-video-preview");
+    if (job.final_video_path) {
+        const videoUrl = `/v2/jobs/${v2JobId}/video`;
+        player.src = videoUrl;
+        player.load();
+        wrap.style.display = "block";
+    } else {
+        wrap.style.display = "none";
+        player.removeAttribute("src");
+    }
+}
+
 async function refreshV2Status() {
     const response = await fetch(`/v2/jobs/${v2JobId}/status`);
     const data = await response.json();
@@ -228,6 +251,7 @@ async function refreshV2Status() {
     document.getElementById("prompt-cost").textContent = `${data.job.prompt_total_tokens || 0} / ¥${data.job.prompt_estimated_cost_cny || 0}`;
     document.getElementById("image-cost").textContent = `${data.job.image_total_tokens || 0} / ¥${data.job.image_estimated_cost_cny || 0}`;
     document.getElementById("video-cost").textContent = `${data.job.video_total_tokens || 0} / ¥${data.job.video_estimated_cost_cny || 0}`;
+    updateV2VideoPreview(data.job);
     if (!["succeeded", "failed"].includes(data.job.status)) {
         window.setTimeout(refreshV2Status, 5000);
     }

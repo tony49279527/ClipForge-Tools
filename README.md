@@ -23,6 +23,12 @@ Environment variables:
 - `OUTPUTS_DIR`: default `./outputs`
 - `UPLOADS_DIR`: default `./uploads`
 - `PRICE_PER_MILLION_TOKENS_CNY`: default `46`
+- `REDIS_URL`: default `redis://localhost:6379/0`
+- `RQ_QUEUE_NAME`: default `clipforge`
+- `RQ_WORKER_COUNT`: default `3`
+- `MAX_CLIP_WORKERS`: default `4`
+- `JOB_RETRIES`: default `2`
+- `JOB_RETRY_DELAY`: default `5`
 
 Notes:
 
@@ -97,10 +103,14 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 export ARK_API_KEY="..."
+redis-server
+python worker.py --workers 3
 uvicorn app:app --reload
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
+
+The web app now enqueues long-running jobs into Redis/RQ, so a Redis server and at least one worker process must be running for video/image/publish tasks to progress.
 
 ## Docker Local Test
 
@@ -110,6 +120,20 @@ docker run -p 8080:8080 -e ARK_API_KEY="..." clipforge-tools
 ```
 
 Then open [http://127.0.0.1:8080](http://127.0.0.1:8080).
+
+## Docker Compose Queue Stack
+
+For the full queue-backed workflow locally:
+
+```bash
+docker compose up --build
+```
+
+This starts:
+
+- `web`: FastAPI application
+- `redis`: queue backend
+- `worker`: RQ worker processes for background jobs
 
 ## Cloud Run Deployment Notes
 
@@ -124,11 +148,12 @@ Important Cloud Run limits and recommendations:
 
 1. Cloud Run request timeout defaults to 300 seconds. For this app, set the Cloud Run timeout to `3600` seconds.
 2. Cloud Run local filesystem is temporary. `outputs/`, `uploads/`, and `data/` are acceptable for V1 testing only. Production should move to Cloud Storage and Cloud SQL.
-3. Set concurrency to `1` for V1 because Seedance generation and FFmpeg stitching are heavy tasks.
+3. Set concurrency to `1` for the web service because Seedance generation and FFmpeg stitching are heavy tasks.
 4. Recommended resources: memory `2GiB`, CPU `2`.
 5. FFmpeg is already installed in the Dockerfile.
 6. Manage secrets with environment variables and Secret Manager. Do not commit secrets to GitHub.
 7. YouTube uploads from unaudited API projects may be forced to `Private`.
+8. This app now uses Redis/RQ for background execution. A single Cloud Run web service is not enough by itself; you also need a Redis service plus separate worker execution infrastructure.
 
 ## Cloud Run Pre-Deploy Checklist
 
@@ -139,6 +164,8 @@ Important Cloud Run limits and recommendations:
 5. Cloud Run timeout is `3600`
 6. Memory is `2GiB`
 7. Concurrency is `1`
+8. Redis is available to the service
+9. At least one RQ worker deployment/process is running
 
 ## GitHub -> Cloud Run
 
@@ -192,4 +219,4 @@ Do not commit:
 - Seedance reference images must be public URLs
 - uploaded local images are stored now but are not sent to Seedance directly
 - `upload_to_object_storage(file_path)` is intentionally reserved for future Cloud Storage / S3 / R2 / TOS support
-- `FastAPI BackgroundTasks` is fine for V1, but long-term production should move job execution to a proper queue system
+- background execution now uses Redis + RQ instead of in-process background threads

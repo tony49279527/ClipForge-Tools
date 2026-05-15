@@ -20,6 +20,18 @@
         <a class="btn ghost" href="/v2/jobs?lang={{ lang }}">{% if is_zh %}查看 2.0 任务{% else %}View 2.0 Jobs{% endif %}</a>
     </div>
 
+    <!-- Template Presets Bar -->
+    <div class="template-bar">
+        <div class="template-bar-row">
+            <label class="template-label">{% if is_zh %}模板{% else %}Template{% endif %}</label>
+            <select id="template-select" class="template-select">
+                <option value="">{% if is_zh %}-- 选择模板 --{% else %}-- Select Template --{% endif %}</option>
+            </select>
+            <button type="button" class="btn ghost" id="btn-save-template">{% if is_zh %}💾 保存为模板{% else %}💾 Save as Template{% endif %}</button>
+            <button type="button" class="btn ghost" id="btn-delete-template" style="display:none;">{% if is_zh %}🗑 删除{% else %}🗑 Delete{% endif %}</button>
+        </div>
+    </div>
+
     <form action="/v2/jobs" method="post" class="job-form">
         <section class="form-section">
             <div class="form-section-head">
@@ -133,10 +145,212 @@
             </label>
         </section>
 
+        <!-- Cost Estimate Panel -->
+        <div class="cost-estimate" id="cost-estimate">
+            <div class="cost-estimate-head">
+                <span class="eyebrow">{% if is_zh %}费用预估{% else %}Cost Estimate{% endif %}</span>
+                <h3>{% if is_zh %}基于当前设置的预估费用{% else %}Estimated cost based on current settings{% endif %}</h3>
+            </div>
+            <div class="grid three stats-grid" id="cost-breakdown">
+                <div class="metric">
+                    <span>Prompt</span>
+                    <strong id="cost-prompt">¥0.00</strong>
+                </div>
+                <div class="metric">
+                    <span>Images</span>
+                    <strong id="cost-images">¥0.00</strong>
+                </div>
+                <div class="metric">
+                    <span>Video</span>
+                    <strong id="cost-video">¥0.00</strong>
+                </div>
+            </div>
+            <div class="cost-estimate-total">
+                <span>{% if is_zh %}预估总计{% else %}Estimated Total{% endif %}</span>
+                <strong id="cost-total">¥0.00</strong>
+            </div>
+        </div>
+
         <div class="form-actions">
             <button class="btn primary" type="submit">{% if is_zh %}开始 2.0 工作流{% else %}Start 2.0 Workflow{% endif %}</button>
             <a class="btn ghost" href="/?lang={{ lang }}">{% if is_zh %}返回 1.0{% else %}Back to 1.0{% endif %}</a>
         </div>
     </form>
 </section>
+
+<script>
+// Cost estimation constants (match usage_core.py defaults)
+const PROMPT_PRICE_PER_MILLION = 8;    // ¥8 / 1M tokens
+const IMAGE_PRICE_PER_IMAGE = 0.35;    // ¥0.35 per image
+const VIDEO_PRICE_PER_MILLION = 46;    // ¥46 / 1M tokens
+const TOKENS_PER_SECOND = 500;         // ~500 tokens per second of video
+
+function updateCostEstimate() {
+    const clipCount = parseInt(document.querySelector('select[name="clip_count"]').value) || 4;
+    const clipDuration = parseInt(document.querySelector('select[name="clip_duration"]').value) || 10;
+    const totalSeconds = clipCount * clipDuration;
+
+    // Prompt: ~2000 tokens per clip for bilingual prompts
+    const promptTokens = clipCount * 2000;
+    const promptCost = promptTokens / 1_000_000 * PROMPT_PRICE_PER_MILLION;
+
+    // Images: ¥0.35 per image per clip
+    const imageCost = clipCount * IMAGE_PRICE_PER_IMAGE;
+
+    // Video: ~500 tokens/sec
+    const videoTokens = totalSeconds * TOKENS_PER_SECOND;
+    const videoCost = videoTokens / 1_000_000 * VIDEO_PRICE_PER_MILLION;
+
+    const total = promptCost + imageCost + videoCost;
+
+    document.getElementById('cost-prompt').textContent = `¥${promptCost.toFixed(2)}`;
+    document.getElementById('cost-images').textContent = `¥${imageCost.toFixed(2)}`;
+    document.getElementById('cost-video').textContent = `¥${videoCost.toFixed(2)}`;
+    document.getElementById('cost-total').textContent = `¥${total.toFixed(2)}`;
+}
+
+// Recalculate when relevant inputs change
+document.querySelectorAll('select[name="clip_count"], select[name="clip_duration"]').forEach(el => {
+    el.addEventListener('change', updateCostEstimate);
+});
+
+// Initial calculation
+updateCostEstimate();
+
+// ── Template Presets ─────────────────────────────────────────────
+
+/** Collect all form field values into a plain object. */
+function getFormValues() {
+    const form = document.querySelector('.job-form');
+    const data = {};
+    new FormData(form).forEach((value, key) => { data[key] = value; });
+    return data;
+}
+
+/** Apply a template object to the form fields. */
+function applyTemplate(tpl) {
+    const form = document.querySelector('.job-form');
+    const map = {
+        idea_title: 'idea_title',
+        project_name: 'project_name',
+        product_name: 'product_name',
+        simple_idea: 'simple_idea',
+        target_audience: 'target_audience',
+        video_mode: 'video_mode',
+        ratio: 'ratio',
+        clip_count: 'clip_count',
+        clip_duration: 'clip_duration',
+        resolution: 'resolution',
+        style_preference: 'style_preference',
+        youtube_title: 'youtube_title',
+        youtube_description: 'youtube_description',
+        privacy: 'privacy',
+    };
+    for (const [field, key] of Object.entries(map)) {
+        const el = form.querySelector(`[name="${field}"]`);
+        if (el && tpl[key] !== undefined && tpl[key] !== null) {
+            el.value = tpl[key];
+        }
+    }
+    updateCostEstimate();
+}
+
+/** Load the template list into the <select>. */
+async function loadTemplateList() {
+    const sel = document.getElementById('template-select');
+    const currentVal = sel.value;
+    // Keep the placeholder
+    sel.innerHTML = '<option value="">{% if is_zh %}-- 选择模板 --{% else %}-- Select Template --{% endif %}</option>';
+    try {
+        const resp = await fetch('/api/templates');
+        const templates = await resp.json();
+        for (const tpl of templates) {
+            const opt = document.createElement('option');
+            opt.value = tpl.id;
+            opt.textContent = tpl.name;
+            sel.appendChild(opt);
+        }
+        if (currentVal) {
+            // Try to restore selection
+            for (const opt of sel.options) {
+                if (opt.value === currentVal) { opt.selected = true; break; }
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load templates', e);
+    }
+    toggleDeleteButton();
+}
+
+function toggleDeleteButton() {
+    const sel = document.getElementById('template-select');
+    const btn = document.getElementById('btn-delete-template');
+    btn.style.display = sel.value ? '' : 'none';
+}
+
+// Load template list on page load
+loadTemplateList();
+
+// Apply template on select change
+document.getElementById('template-select').addEventListener('change', async function () {
+    const id = this.value;
+    toggleDeleteButton();
+    if (!id) return;
+    try {
+        const resp = await fetch(`/api/templates/${id}`);
+        const tpl = await resp.json();
+        applyTemplate(tpl);
+    } catch (e) {
+        console.error('Failed to load template', e);
+    }
+});
+
+// Save template
+document.getElementById('btn-save-template').addEventListener('click', async function () {
+    const name = prompt('{% if is_zh %}请输入模板名称：{% else %}Enter template name:{% endif %}');
+    if (!name || !name.trim()) return;
+    const data = getFormValues();
+    data.name = name.trim();
+    try {
+        const resp = await fetch('/api/templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        const result = await resp.json();
+        if (resp.ok) {
+            await loadTemplateList();
+            // Select the newly created template
+            const sel = document.getElementById('template-select');
+            for (const opt of sel.options) {
+                if (opt.value == result.id) { opt.selected = true; break; }
+            }
+            toggleDeleteButton();
+        } else {
+            alert('{% if is_zh %}保存失败：{% else %}Save failed:{% endif %} ' + (result.detail || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('{% if is_zh %}保存失败：{% else %}Save failed:{% endif %} ' + e.message);
+    }
+});
+
+// Delete template
+document.getElementById('btn-delete-template').addEventListener('click', async function () {
+    const sel = document.getElementById('template-select');
+    const id = sel.value;
+    if (!id) return;
+    const name = sel.options[sel.selectedIndex]?.textContent || '';
+    if (!confirm(`{% if is_zh %}确定删除模板「${name}」？{% else %}Delete template "${name}"?{% endif %}`)) return;
+    try {
+        const resp = await fetch(`/api/templates/${id}`, { method: 'DELETE' });
+        if (resp.ok) {
+            await loadTemplateList();
+        } else {
+            alert('{% if is_zh %}删除失败{% else %}Delete failed{% endif %}');
+        }
+    } catch (e) {
+        alert('{% if is_zh %}删除失败：{% else %}Delete failed:{% endif %} ' + e.message);
+    }
+});
+</script>
 {% endblock %}

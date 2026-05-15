@@ -1,7 +1,6 @@
 import json
 import os
 import shutil
-import threading
 import uuid
 from pathlib import Path
 from typing import List
@@ -16,7 +15,9 @@ from db import (
     create_job,
     create_frame_image_version,
     create_storyboard_frames,
+    create_template,
     delete_storyboard_frames_for_job,
+    delete_template,
     get_current_frame_image_version,
     get_frame_image_version,
     get_all_jobs,
@@ -24,8 +25,10 @@ from db import (
     get_job_by_id,
     get_storyboard_frame,
     get_storyboard_frames,
+    get_template,
     get_usage_totals_by_stage,
     list_frame_image_versions,
+    list_templates,
     list_usage_events,
     set_current_frame_image_version,
     swap_storyboard_frame_positions,
@@ -37,7 +40,7 @@ from idea_core import generate_storyboard_prompts
 from image_core import generate_storyboard_image
 from usage_core import estimate_stage_cost, record_usage, refresh_job_usage_totals
 from youtube_core import list_youtube_accounts
-from video_core import ensure_runtime_dirs, run_storyboard_video_job, run_video_job
+from video_core import OUTPUTS_DIR, ensure_runtime_dirs
 from youtube_core import upload_youtube
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -456,11 +459,9 @@ async def create_job_view(
         )
         update_job_fields(job_id, {"uploaded_images_note": note})
 
-    # Use a daemon thread instead of FastAPI BackgroundTasks.
-    # BackgroundTasks are tied to the HTTP request lifecycle; Cloud Run can freeze
-    # the container after the response is sent, killing the background task.
-    # A daemon thread lives at the process level and survives the request.
-    threading.Thread(target=run_video_job, args=(job_id,), daemon=True).start()
+    # Enqueue via RQ task queue for persistent, concurrent execution.
+    from task_queue import enqueue_video_job
+    enqueue_video_job(job_id)
     lang = resolve_lang(request)
     return RedirectResponse(url=f"/jobs/{job_id}?lang={lang}", status_code=303)
 
@@ -490,7 +491,26 @@ def job_status(job_id: int):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     clips = get_clip_rows_by_job_id(job_id)
-    return {"job": dict(job), "clips": [dict(row) for row in clips]}
+    queue = None
+    try:
+        from task_queue import get_job_status as get_rq_job_status
+
+        queue = get_rq_job_status(job_id)
+    except Exception as exc:
+        queue = {"status": "unavailable", "error": str(exc)}
+    return {"job": dict(job), "clips": [dict(row) for row in clips], "queue": queue}
+
+
+@app.get("/jobs/{job_id}/video")
+def job_video(job_id: int):
+    """Serve the final video file for in-browser preview."""
+    job = get_job_by_id(job_id)
+    if not job or not job["final_video_path"]:
+        raise HTTPException(status_code=404, detail="No video available")
+    video_path = Path(job["final_video_path"])
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="Video file not found")
+    return FileResponse(video_path, media_type="video/mp4")
 
 
 @app.get("/healthz")
@@ -577,7 +597,8 @@ async def create_v2_job(
             "style_preference": style_preference.strip(),
         }
     )
-    threading.Thread(target=generate_storyboard_prompts_job, args=(job_id,), daemon=True).start()
+    from task_queue import enqueue_storyboard_prompts_job
+    enqueue_storyboard_prompts_job(job_id)
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
 
 
@@ -622,18 +643,27 @@ def v2_job_status(job_id: int):
     frames = [dict(frame) for frame in get_storyboard_frames(job_id)]
     clips = [dict(row) for row in get_clip_rows_by_job_id(job_id)]
     usage_events = [dict(row) for row in list_usage_events(job_id)]
+    queue = None
+    try:
+        from task_queue import get_job_status as get_rq_job_status
+
+        queue = get_rq_job_status(job_id)
+    except Exception as exc:
+        queue = {"status": "unavailable", "error": str(exc)}
     return {
         "job": dict(job),
         "frames": frames,
         "clips": clips,
         "usage_events": usage_events,
         "usage_totals": get_usage_totals_by_stage(job_id),
+        "queue": queue,
     }
 
 
 @app.post("/v2/jobs/{job_id}/regenerate-prompts")
 def regenerate_v2_prompts(request: Request, job_id: int):
-    threading.Thread(target=generate_storyboard_prompts_job, args=(job_id,), daemon=True).start()
+    from task_queue import enqueue_storyboard_prompts_job
+    enqueue_storyboard_prompts_job(job_id)
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
 
 
@@ -662,7 +692,8 @@ async def update_v2_frame_prompts(
 @app.post("/v2/jobs/{job_id}/generate-images")
 def generate_v2_images(request: Request, job_id: int):
     base_url = str(request.base_url).rstrip("/")
-    threading.Thread(target=generate_storyboard_images_job, args=(job_id, base_url), daemon=True).start()
+    from task_queue import enqueue_storyboard_images_job
+    enqueue_storyboard_images_job(job_id, base_url)
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
 
 
@@ -672,7 +703,8 @@ def regenerate_v2_image(request: Request, frame_id: int):
     if not frame:
         raise HTTPException(status_code=404, detail="Storyboard frame not found")
     base_url = str(request.base_url).rstrip("/")
-    threading.Thread(target=generate_storyboard_images_job, args=(frame["job_id"], base_url, frame_id), daemon=True).start()
+    from task_queue import enqueue_storyboard_images_job
+    enqueue_storyboard_images_job(frame["job_id"], base_url, frame_id)
     return RedirectResponse(url=f"/v2/jobs/{frame['job_id']}?lang={resolve_lang(request)}", status_code=303)
 
 
@@ -702,7 +734,8 @@ def approve_all_v2(request: Request, job_id: int):
 
 @app.post("/v2/jobs/{job_id}/launch-video")
 def launch_v2_video(request: Request, job_id: int):
-    threading.Thread(target=run_storyboard_video_job, args=(job_id,), daemon=True).start()
+    from task_queue import enqueue_storyboard_video_job
+    enqueue_storyboard_video_job(job_id)
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
 
 
@@ -738,8 +771,21 @@ def move_v2_frame(request: Request, job_id: int, frame_id: int, direction: str):
 
 @app.post("/v2/jobs/{job_id}/publish")
 def publish_v2(request: Request, job_id: int):
-    threading.Thread(target=publish_v2_job, args=(job_id,), daemon=True).start()
+    from task_queue import enqueue_publish_job
+    enqueue_publish_job(job_id)
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
+
+
+@app.get("/v2/jobs/{job_id}/video")
+def v2_job_video(job_id: int):
+    """Serve the final video file for v2 job in-browser preview."""
+    job = get_job_by_id(job_id)
+    if not job or not job["final_video_path"]:
+        raise HTTPException(status_code=404, detail="No video available")
+    video_path = Path(job["final_video_path"])
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="Video file not found")
+    return FileResponse(video_path, media_type="video/mp4")
 
 
 @app.get("/v2/storyboards/versions/{version_id}/image")
@@ -751,6 +797,57 @@ def get_storyboard_image(version_id: int):
     if not image_path.exists():
         raise HTTPException(status_code=404, detail="Storyboard image file missing")
     return FileResponse(image_path)
+
+
+# ── Template Presets API ──────────────────────────────────────────
+
+@app.get("/api/templates")
+def api_list_templates():
+    """Return all saved templates as JSON."""
+    rows = list_templates()
+    return [dict(row) for row in rows]
+
+
+@app.get("/api/templates/{template_id}")
+def api_get_template(template_id: int):
+    row = get_template(template_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return dict(row)
+
+
+@app.post("/api/templates")
+async def api_create_template(request: Request):
+    """Save current form values as a template."""
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Template name is required")
+    template_id = create_template(
+        {
+            "name": name,
+            "project_name": body.get("project_name", ""),
+            "product_name": body.get("product_name", ""),
+            "simple_idea": body.get("simple_idea", ""),
+            "target_audience": body.get("target_audience", ""),
+            "video_mode": body.get("video_mode", ""),
+            "ratio": body.get("ratio", ""),
+            "clip_count": int(body.get("clip_count", 4)),
+            "clip_duration": int(body.get("clip_duration", 10)),
+            "resolution": body.get("resolution", ""),
+            "style_preference": body.get("style_preference", ""),
+            "youtube_title": body.get("youtube_title", ""),
+            "youtube_description": body.get("youtube_description", ""),
+            "privacy": body.get("privacy", ""),
+        }
+    )
+    return {"id": template_id, "name": name}
+
+
+@app.delete("/api/templates/{template_id}")
+def api_delete_template(template_id: int):
+    delete_template(template_id)
+    return {"ok": True}
 
 
 if __name__ == "__main__":

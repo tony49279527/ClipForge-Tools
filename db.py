@@ -169,6 +169,31 @@ def init_db() -> None:
 
     cur.execute(
         """
+        CREATE TABLE IF NOT EXISTS templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            workflow_version TEXT DEFAULT '2.0',
+            project_name TEXT,
+            product_name TEXT,
+            simple_idea TEXT,
+            target_audience TEXT,
+            video_mode TEXT,
+            ratio TEXT,
+            clip_count INTEGER,
+            clip_duration INTEGER,
+            resolution TEXT,
+            style_preference TEXT,
+            youtube_title TEXT,
+            youtube_description TEXT,
+            privacy TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS usage_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             job_id INTEGER NOT NULL,
@@ -626,6 +651,73 @@ def list_usage_events(job_id: int) -> List[sqlite3.Row]:
     rows = cur.fetchall()
     conn.close()
     return rows
+
+
+# ── Template Presets ──────────────────────────────────────────────
+
+def create_template(payload: Dict[str, Any]) -> int:
+    now = utc_now()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO templates (
+            name, workflow_version, project_name, product_name, simple_idea,
+            target_audience, video_mode, ratio, clip_count, clip_duration,
+            resolution, style_preference, youtube_title, youtube_description,
+            privacy, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            payload["name"],
+            payload.get("workflow_version", "2.0"),
+            payload.get("project_name", ""),
+            payload.get("product_name", ""),
+            payload.get("simple_idea", ""),
+            payload.get("target_audience", ""),
+            payload.get("video_mode", ""),
+            payload.get("ratio", ""),
+            payload.get("clip_count"),
+            payload.get("clip_duration"),
+            payload.get("resolution", ""),
+            payload.get("style_preference", ""),
+            payload.get("youtube_title", ""),
+            payload.get("youtube_description", ""),
+            payload.get("privacy", ""),
+            now,
+            now,
+        ),
+    )
+    template_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return int(template_id)
+
+
+def list_templates() -> List[sqlite3.Row]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM templates ORDER BY updated_at DESC")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def get_template(template_id: int) -> Optional[sqlite3.Row]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM templates WHERE id = ?", (template_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def delete_template(template_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM templates WHERE id = ?", (template_id,))
+    conn.commit()
+    conn.close()
 
 
 def get_usage_totals_by_stage(job_id: int) -> Dict[str, Dict[str, float]]:

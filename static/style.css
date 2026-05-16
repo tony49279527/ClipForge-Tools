@@ -36,6 +36,7 @@ body {
     min-height: 100vh;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    padding-bottom: 72px;
 }
 
 a {
@@ -46,6 +47,23 @@ a {
 
 a:hover {
     color: var(--accent-hover);
+}
+
+.version-badge {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 60;
+    padding: 8px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    background: rgba(9, 9, 11, 0.72);
+    backdrop-filter: blur(12px);
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 h1, h2, h3, h4, h5, h6 {

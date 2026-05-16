@@ -40,6 +40,9 @@
     <main class="container page">
         {% block content %}{% endblock %}
     </main>
+    <div class="version-badge" title="Current deployed application version">
+        {% if is_zh %}版本{% else %}Version{% endif %} {{ app_version }}
+    </div>
     <script>
         document.getElementById("nav-toggle")?.addEventListener("click", function() {
             document.getElementById("nav-menu")?.classList.toggle("visible");

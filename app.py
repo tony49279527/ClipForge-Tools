@@ -1,7 +1,9 @@
 import json
 import os
 import shutil
+import subprocess
 import uuid
+from functools import lru_cache
 from pathlib import Path
 from typing import List
 
@@ -50,6 +52,23 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 
 ALLOWED_UPLOAD_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
+
+@lru_cache(maxsize=1)
+def get_app_version() -> str:
+    env_version = (os.getenv("APP_VERSION") or "").strip()
+    if env_version:
+        return env_version
+
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(BASE_DIR),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return "unknown"
+
 app = FastAPI(title="ClipForge Tools")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -70,6 +89,7 @@ def build_common_context(request: Request) -> dict:
         "is_zh": lang == "zh",
         "lang_switch_en": str(request.url.include_query_params(lang="en")),
         "lang_switch_zh": str(request.url.include_query_params(lang="zh")),
+        "app_version": get_app_version(),
         "youtube_accounts": youtube_accounts,
         "has_youtube_accounts": len(youtube_accounts) > 0,
     }

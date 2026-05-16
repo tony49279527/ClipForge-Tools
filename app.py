@@ -59,6 +59,10 @@ def get_app_version() -> str:
     if env_version:
         return env_version
 
+    cloud_run_revision = (os.getenv("K_REVISION") or "").strip()
+    if cloud_run_revision:
+        return cloud_run_revision
+
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],

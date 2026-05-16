@@ -542,6 +542,38 @@ def healthz():
     return {"ok": True}
 
 
+# ── Product Scraper API ──
+@app.get("/api/scrape")
+async def scrape_product_api(request: Request, url: str = ""):
+    """Scrape product info from a URL. Returns structured data for auto-filling job forms."""
+    if not url:
+        raise HTTPException(status_code=400, detail="url parameter is required")
+
+    from product_scraper import scrape_product
+    from prompt_builder import generate_prompts_from_url, product_audience_guess
+
+    product = await scrape_product(url)
+    if product.error and not product.title:
+        raise HTTPException(status_code=422, detail=f"Failed to scrape: {product.error}")
+
+    prompt_set = generate_prompts_from_url(product)
+
+    context = build_common_context(request)
+    return {
+        "url": product.url,
+        "platform": product.platform,
+        "title": product.title,
+        "description": product.description[:500] if product.description else "",
+        "price": product.price,
+        "features": product.features[:10],
+        "image_urls": product.image_urls[:6],
+        "category_hints": product.category_hints,
+        "target_audience": prompt_set["target_audience"],
+        "suggested_prompt": prompt_set["youtube_prompt"][:2000],
+        "error": product.error,
+    }
+
+
 @app.get("/v2")
 def v2_index(request: Request):
     context = build_common_context(request)

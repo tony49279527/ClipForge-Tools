@@ -11,6 +11,39 @@
     </div>
 </section>
 
+<!-- Product URL Quick Import -->
+<section class="card" id="url-import-section">
+    <div class="section-head">
+        <div>
+            <span class="eyebrow">{% if is_zh %}快速导入{% else %}Quick Import{% endif %}</span>
+            <h2>{% if is_zh %}粘贴产品链接，自动填表{% else %}Paste product URL, auto-fill the form{% endif %}</h2>
+        </div>
+    </div>
+    <div class="url-import-row">
+        <input
+            type="url"
+            id="product-url-input"
+            placeholder="{% if is_zh %}https://www.amazon.com/dp/... 或 Shopify 产品链接{% else %}https://www.amazon.com/dp/... or Shopify product URL{% endif %}"
+            class="url-input"
+        >
+        <button type="button" class="btn primary" id="btn-scrape-url">
+            {% if is_zh %}🔍 抓取产品信息{% else %}🔍 Scrape Product{% endif %}
+        </button>
+        <span class="scrape-status" id="scrape-status"></span>
+    </div>
+    <div id="scrape-result" style="display:none;" class="scrape-result-panel">
+        <div class="scrape-images" id="scrape-images"></div>
+        <div class="scrape-info">
+            <p><strong>{% if is_zh %}产品名{% else %}Product{% endif %}:</strong> <span id="scrape-title"></span></p>
+            <p><strong>{% if is_zh %}平台{% else %}Platform{% endif %}:</strong> <span id="scrape-platform"></span></p>
+            <p><strong>{% if is_zh %}受众{% else %}Audience{% endif %}:</strong> <span id="scrape-audience"></span></p>
+            <button type="button" class="btn primary" id="btn-apply-scrape">
+                {% if is_zh %}✅ 应用到表单{% else %}✅ Apply to Form{% endif %}
+            </button>
+        </div>
+    </div>
+</section>
+
 <section class="card form-shell">
     <div class="section-head form-head">
         <div>
@@ -351,6 +384,91 @@ document.getElementById('btn-delete-template').addEventListener('click', async f
     } catch (e) {
         alert('{% if is_zh %}删除失败：{% else %}Delete failed:{% endif %} ' + e.message);
     }
+});
+</script>
+
+<!-- URL Scrape + Auto-fill -->
+<script>
+const scrapeBtn = document.getElementById('btn-scrape-url');
+const scrapeStatus = document.getElementById('scrape-status');
+const scrapeResult = document.getElementById('scrape-result');
+const applyBtn = document.getElementById('btn-apply-scrape');
+let scrapedData = null;
+
+scrapeBtn.addEventListener('click', async () => {
+    const url = document.getElementById('product-url-input').value.trim();
+    if (!url) {
+        scrapeStatus.textContent = '{% if is_zh %}请输入链接{% else %}Please enter a URL{% endif %}';
+        return;
+    }
+    scrapeBtn.disabled = true;
+    scrapeStatus.textContent = '{% if is_zh %}正在抓取...{% else %}Scraping...{% endif %}';
+    scrapeResult.style.display = 'none';
+    try {
+        const resp = await fetch(`/api/scrape?url=${encodeURIComponent(url)}`);
+        const data = await resp.json();
+        if (!resp.ok) {
+            throw new Error(data.detail || '{% if is_zh %}抓取失败{% else %}Scrape failed{% endif %}');
+        }
+        scrapedData = data;
+        // Show result
+        document.getElementById('scrape-title').textContent = data.title || '{% if is_zh %}（未识别）{% else %}(unknown){% endif %}';
+        document.getElementById('scrape-platform').textContent = data.platform || '-';
+        document.getElementById('scrape-audience').textContent = data.target_audience || '-';
+        // Show images
+        const imgContainer = document.getElementById('scrape-images');
+        imgContainer.innerHTML = '';
+        if (data.image_urls && data.image_urls.length > 0) {
+            data.image_urls.slice(0, 4).forEach(src => {
+                const img = document.createElement('img');
+                img.src = src;
+                img.alt = data.title;
+                img.className = 'scrape-thumb';
+                img.onerror = function() { this.style.display = 'none'; };
+                imgContainer.appendChild(img);
+            });
+        }
+        scrapeResult.style.display = 'flex';
+        scrapeStatus.textContent = '{% if is_zh %}✅ 抓取完成{% else %}✅ Done{% endif %}';
+    } catch (e) {
+        scrapeStatus.textContent = '❌ ' + e.message;
+    } finally {
+        scrapeBtn.disabled = false;
+    }
+});
+
+applyBtn.addEventListener('click', () => {
+    if (!scrapedData) return;
+    const form = document.querySelector('.job-form');
+    // Map scraped fields to form fields
+    const setVal = (name, value) => {
+        const el = form.querySelector(`[name="${name}"]`);
+        if (el && value) el.value = value;
+    };
+    setVal('product_name', scrapedData.title);
+    setVal('project_name', scrapedData.title ? scrapedData.title + ' Video' : '');
+    setVal('idea_title', scrapedData.title);
+    setVal('target_audience', scrapedData.target_audience);
+    if (scrapedData.features && scrapedData.features.length > 0) {
+        setVal('simple_idea', scrapedData.features.join('; '));
+    }
+    if (scrapedData.description) {
+        setVal('style_preference', 'Product video in workshop/garage setting. Professional lighting.');
+    }
+    // Set YouTube fields
+    if (scrapedData.title) {
+        setVal('youtube_title', scrapedData.title + ' - Product Demo & Review');
+    }
+    setVal('youtube_description', scrapedData.description || '');
+    // Set reference images if available
+    if (scrapedData.image_urls && scrapedData.image_urls.length > 0) {
+        const refEl = form.querySelector('[name="reference_image_urls"]');
+        if (refEl) refEl.value = scrapedData.image_urls.join('\n');
+    }
+    updateCostEstimate();
+    scrapeStatus.textContent = '{% if is_zh %}✅ 已应用到表单{% else %}✅ Applied to form{% endif %}';
+    // Scroll to form
+    form.scrollIntoView({ behavior: 'smooth' });
 });
 </script>
 {% endblock %}

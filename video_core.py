@@ -295,6 +295,100 @@ def download_video(video_url: str, output_path: Path) -> Path:
     return output_path
 
 
+def create_cta_end_card(
+    output_path: Path,
+    product_name: str = "",
+    brand_hint: str = "",
+    resolution: str = "720p",
+    duration: int = 5,
+) -> Path:
+    """Create a simple CTA end card video frame with FFmpeg.
+
+    Shows a dark background with text overlay:
+    'Search [brand/product] on Amazon'
+    or a generic CTA if no product name given.
+    """
+    width, height = {"1080p": (1920, 1080), "720p": (1280, 720), "480p": (854, 480)}.get(
+        resolution, (1280, 720)
+    )
+
+    brand = brand_hint or product_name or "this product"
+    # Truncate long names
+    if len(brand) > 40:
+        brand = brand[:37] + "..."
+
+    # Escape single quotes for FFmpeg drawtext
+    safe_brand = brand.replace("'", "\\'")
+    safe_product = product_name.replace("'", "\\'") if product_name else ""
+
+    # Build drawtext filters
+    line1 = f"Search '{safe_brand}'"
+    line2 = "on Amazon"
+    line3 = f"{safe_product}" if safe_product and safe_product != brand else ""
+
+    font_size = int(height * 0.06)
+    font_size_small = int(height * 0.04)
+
+    # Main CTA line
+    draw_filters = [
+        f"drawtext=text='{line1}':fontcolor=white:fontsize={font_size}:"
+        f"x=(w-text_w)/2:y=(h-text_h)/2-{font_size//2}:"
+        f"font='Helvetica':borderw=3:bordercolor=black@0.5"
+    ]
+    # Subtitle
+    draw_filters.append(
+        f"drawtext=text='{line2}':fontcolor=#8b5cf6:fontsize={font_size_small}:"
+        f"x=(w-text_w)/2:y=(h-text_h)/2+{font_size//2}:"
+        f"font='Helvetica':borderw=2:bordercolor=black@0.5"
+    )
+    if line3:
+        draw_filters.append(
+            f"drawtext=text='{line3}':fontcolor=#94a3b8:fontsize={font_size_small}:"
+            f"x=(w-text_w)/2:y=(h-text_h)/2+{font_size}:"
+            f"font='Helvetica':borderw=2:bordercolor=black@0.5"
+        )
+
+    filter_complex = ",".join(draw_filters)
+
+    command = [
+        "ffmpeg",
+        "-y",
+        "-f", "lavfi",
+        "-i", f"color=c=#09090b:s={width}x{height}:d={duration}:r=30",
+        "-vf", filter_complex,
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-an",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg CTA card failed: {result.stderr}")
+
+    return output_path
+
+
+def stitch_with_cta(
+    clip_paths: List[Path],
+    output_dir: Path,
+    product_name: str = "",
+    brand_hint: str = "",
+    resolution: str = "720p",
+) -> Path:
+    """Create CTA end card, append to clips, then concat into final video."""
+    cta_path = output_dir / "cta_end_card.mp4"
+    try:
+        create_cta_end_card(cta_path, product_name, brand_hint, resolution)
+        clip_paths = list(clip_paths) + [cta_path]
+    except Exception as exc:
+        # CTA failed — continue without it
+        print(f"CTA card creation skipped: {exc}")
+
+    return concat_clips(clip_paths, output_dir / "final_video.mp4")
+
+
 def concat_clips(clip_paths: List[Path], final_video_path: Path) -> Path:
     if not clip_paths:
         raise ValueError("No clip paths provided for concatenation")
@@ -501,7 +595,7 @@ def run_video_job(job_id: int) -> None:
         final_video_path = None
         if int(job["stitch_final_video"]) == 1:
             update_job_fields(job_id, {"status": "stitching", "current_step": "Concatenating clips"})
-            final_video_path = concat_clips(clip_paths, job_output_dir / "final_video.mp4")
+            final_video_path = stitch_with_cta(clip_paths, job_output_dir, job["product_name"], resolution=job["resolution"])
             update_job_fields(job_id, {"final_video_path": str(final_video_path)})
         elif clip_paths:
             final_video_path = clip_paths[0]
@@ -650,7 +744,7 @@ def run_storyboard_video_job(job_id: int) -> None:
         final_video_path = None
         if int(job["stitch_final_video"]) == 1:
             update_job_fields(job_id, {"status": "stitching", "current_step": "Concatenating clips"})
-            final_video_path = concat_clips(clip_paths, job_output_dir / "final_video.mp4")
+            final_video_path = stitch_with_cta(clip_paths, job_output_dir, job["product_name"], resolution=job["resolution"])
             update_job_fields(job_id, {"final_video_path": str(final_video_path)})
         elif clip_paths:
             final_video_path = clip_paths[0]
@@ -844,7 +938,7 @@ def run_video_job_parallel(job_id: int) -> Dict[str, Any]:
         final_video_path = None
         if int(job["stitch_final_video"]) == 1 and clip_paths:
             update_job_fields(job_id, {"status": "stitching", "current_step": "Concatenating clips"})
-            final_video_path = concat_clips(clip_paths, job_output_dir / "final_video.mp4")
+            final_video_path = stitch_with_cta(clip_paths, job_output_dir, job["product_name"], resolution=job["resolution"])
             update_job_fields(job_id, {"final_video_path": str(final_video_path)})
         elif clip_paths:
             final_video_path = clip_paths[0]
@@ -1048,7 +1142,7 @@ def run_storyboard_video_job_parallel(job_id: int) -> Dict[str, Any]:
         final_video_path = None
         if int(job["stitch_final_video"]) == 1 and clip_paths:
             update_job_fields(job_id, {"status": "stitching", "workflow_stage": "videos_generating", "current_step": "Concatenating clips"})
-            final_video_path = concat_clips(clip_paths, job_output_dir / "final_video.mp4")
+            final_video_path = stitch_with_cta(clip_paths, job_output_dir, job["product_name"], resolution=job["resolution"])
             update_job_fields(job_id, {"final_video_path": str(final_video_path)})
         elif clip_paths:
             final_video_path = clip_paths[0]

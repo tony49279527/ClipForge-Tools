@@ -705,3 +705,69 @@ tbody tr:last-child td {
         flex-direction: column;
     }
 }
+
+/* ── URL Import Section ── */
+.url-import-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.url-input {
+    flex: 1;
+    min-width: 280px;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    transition: var(--transition);
+}
+
+.url-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+.scrape-status {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.scrape-result-panel {
+    margin-top: 20px;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-md);
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.scrape-images {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.scrape-images img {
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.scrape-info {
+    flex: 1;
+    min-width: 200px;
+}
+
+.scrape-info p {
+    margin: 4px 0;
+    font-size: 0.9rem;
+}

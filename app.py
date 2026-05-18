@@ -18,8 +18,11 @@ from db import (
     create_frame_image_version,
     create_storyboard_frames,
     create_template,
+    delete_clips_for_job,
+    delete_frame_image_versions,
     delete_storyboard_frames_for_job,
     delete_template,
+    delete_usage_events,
     get_current_frame_image_version,
     get_frame_image_version,
     get_all_jobs,
@@ -162,11 +165,47 @@ def create_storyboard_public_url(base_url: str, version_id: int) -> str:
     return f"{base_url.rstrip('/')}/v2/storyboards/versions/{version_id}/image"
 
 
+def invalidate_v2_video_outputs(job_id: int) -> None:
+    delete_clips_for_job(job_id)
+    delete_usage_events(job_id, stages=["video_generation", "publishing"])
+    update_job_fields(
+        job_id,
+        {
+            "final_video_path": None,
+            "youtube_url": None,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
+    refresh_job_usage_totals(job_id)
+
+
+def invalidate_v2_frame_assets(job_id: int, frame_id: int) -> None:
+    delete_frame_image_versions(frame_id)
+    delete_usage_events(job_id, stages=["image_generation"], entity_type="storyboard_frame", entity_id=frame_id)
+    update_storyboard_frame(
+        frame_id,
+        {
+            "image_status": "queued",
+            "image_model": None,
+            "image_remote_url": None,
+            "image_local_path": None,
+            "image_tokens": 0,
+            "image_estimated_cost_cny": 0,
+            "user_approved": 0,
+            "error_message": None,
+        },
+    )
+    refresh_job_usage_totals(job_id)
+
+
 def generate_storyboard_prompts_job(job_id: int) -> None:
     job = get_job_by_id(job_id)
     if not job:
         return
     try:
+        invalidate_v2_video_outputs(job_id)
+        delete_usage_events(job_id, stages=["image_generation"])
         update_job_fields(
             job_id,
             {
@@ -210,6 +249,7 @@ def generate_storyboard_prompts_job(job_id: int) -> None:
                 "status": "queued",
                 "workflow_stage": "prompts_ready",
                 "current_step": "Storyboard prompts ready for review",
+                "prompt_reviewed": 0,
             },
         )
     except Exception as exc:
@@ -321,9 +361,18 @@ def publish_v2_job(job_id: int) -> None:
     if not job:
         return
     try:
+        frames = get_storyboard_frames(job_id)
+        if int(job["prompt_reviewed"] or 0) != 1 or any(int(frame["user_approved"] or 0) != 1 for frame in frames):
+            raise RuntimeError("Prompt and storyboard approvals are no longer valid for publishing.")
+        if int(job["upload_to_youtube"] or 0) != 1:
+            raise RuntimeError("This job is not configured for YouTube publishing.")
         final_video_path = Path(job["final_video_path"]) if job["final_video_path"] else None
         if not final_video_path or not final_video_path.exists():
             raise RuntimeError("Final video is not ready for publishing.")
+        if int(job["video_reviewed"] or 0) != 1:
+            raise RuntimeError("Video has not been approved for publishing yet.")
+        if int(job["publish_confirmed"] or 0) != 1:
+            raise RuntimeError("Publish confirmation is required before YouTube upload.")
         update_job_fields(job_id, {"status": "uploading", "workflow_stage": "publishing", "current_step": "Uploading to YouTube"})
         youtube_url = upload_youtube(
             video_path=final_video_path,
@@ -364,14 +413,14 @@ def on_startup() -> None:
 @app.get("/")
 def index(request: Request):
     sample_job = {
-        "project_name": "RV Hitch Shine Full Workflow",
-        "product_name": "Cotton Polishing Wheel Kit",
-        "amazon_url": "https://www.amazon.com/dp/B0TEST12345",
+        "project_name": "Cordless Drill Demo Workflow",
+        "product_name": "20V Cordless Power Drill Driver Kit",
+        "amazon_url": "https://www.amazon.com/dp/B0DRILL2024",
         "product_brief": (
-            "6-inch cotton polishing wheel kit for bench grinder use. Designed for aluminum, brass, "
-            "stainless steel, trailer hitch balls, and oxidized hardware. Show a full garage workflow "
-            "from dull metal to reflective finish for Amazon buyers in garage DIY, automotive "
-            "restoration, and RV maintenance."
+            "20V cordless drill driver kit with 2 batteries, variable speed trigger, LED work light, "
+            "3/8-inch keyless chuck, and compact ergonomic grip. Show a clean garage workflow drilling "
+            "pilot holes in a pine board, driving wood screws smoothly, and highlighting control, torque, "
+            "and portability for DIY homeowners and Amazon power tool shoppers."
         ),
         "video_mode": "long_video",
         "ratio": "9:16",
@@ -379,18 +428,17 @@ def index(request: Request):
         "clip_count": 4,
         "resolution": "720p",
         "privacy": "unlisted",
-        "youtube_title": "From Dull to Mirror Shine: 4-Step RV Hitch Polish Demo",
+        "youtube_title": "Cordless Drill Demo: Drill, Drive, and Finish in 4 Steps",
         "youtube_description": (
-            "See a complete 4-step garage polishing workflow using a cotton polishing wheel kit. "
-            "This demo covers hook, product closeup, setup, and final RV hitch shine result. "
-            "Product link in description."
+            "Watch a 4-step cordless drill demo covering the hook, product closeup, bit change, drilling, "
+            "and screw driving result. Built for DIY homeowners, garage workshops, and Amazon power tool buyers."
         ),
         "reference_image_urls": "\n".join(
             [
-                "https://images.unsplash.com/photo-1503376780353-7e6692767b70",
-                "https://images.unsplash.com/photo-1517524206127-48bbd363f3d7",
-                "https://images.unsplash.com/photo-1486006920555-c77dcf18193c",
-                "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3",
+                "https://source.unsplash.com/1600x900/?cordless-drill",
+                "https://source.unsplash.com/1600x900/?power-drill,workbench",
+                "https://source.unsplash.com/1600x900/?drill-driver,woodworking",
+                "https://source.unsplash.com/1600x900/?garage,drill,tool",
             ]
         ),
         "upload_to_youtube": True,
@@ -580,19 +628,19 @@ def v2_index(request: Request):
     context.update(
         {
             "sample_idea": {
-                "idea_title": "RV Hitch Polish Storyboard Flow",
-                "project_name": "ClipForge 2.0 Sample",
-                "product_name": "Cotton Polishing Wheel Kit",
-                "simple_idea": "做一个更像教程型广告的 Shorts，先展示 RV hitch ball 氧化发乌，再展示抛光轮安装、接触金属、最后镜面反光效果。",
-                "target_audience": "美国车库 DIY、RV 保养和汽修工具买家",
+                "idea_title": "Cordless Drill Storyboard Flow",
+                "project_name": "ClipForge 2.0 Drill Sample",
+                "product_name": "20V Cordless Power Drill Driver Kit",
+                "simple_idea": "做一个更像教程型广告的 Shorts，先展示手拧螺丝费力和木板打孔慢，再展示电钻装上批头、快速钻孔、顺滑拧入木螺丝，最后给出干净利落的成品特写。",
+                "target_audience": "美国 DIY 家装用户、车库木工爱好者、Amazon 电动工具买家",
                 "video_mode": "long_video",
                 "ratio": "9:16",
                 "clip_count": 4,
                 "clip_duration": 10,
                 "resolution": "720p",
-                "style_preference": "真实美国车库、结构清晰、手部动作明确、强结果对比",
-                "youtube_title": "4-Step RV Hitch Shine Workflow",
-                "youtube_description": "Storyboard-first workflow demo for an RV hitch polishing product video.",
+                "style_preference": "真实美国车库、木工工作台、手部动作明确、钻孔木屑细节清晰、结果对比强",
+                "youtube_title": "4-Step Cordless Drill Workflow",
+                "youtube_description": "Storyboard-first workflow demo for a cordless drill driver product video.",
                 "privacy": "unlisted",
             }
         }
@@ -708,6 +756,7 @@ def v2_job_status(job_id: int):
         queue = {"status": "unavailable", "error": str(exc)}
     return {
         "job": dict(job),
+        "stage_label": workflow_label(job["workflow_stage"], (job["language"] or "zh") == "zh"),
         "frames": frames,
         "clips": clips,
         "usage_events": usage_events,
@@ -718,6 +767,19 @@ def v2_job_status(job_id: int):
 
 @app.post("/v2/jobs/{job_id}/regenerate-prompts")
 def regenerate_v2_prompts(request: Request, job_id: int):
+    invalidate_v2_video_outputs(job_id)
+    delete_usage_events(job_id, stages=["image_generation"])
+    refresh_job_usage_totals(job_id)
+    update_job_fields(
+        job_id,
+        {
+            "workflow_stage": "prompts_generating",
+            "current_step": "Regenerating storyboard prompts",
+            "prompt_reviewed": 0,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
     from task_queue import enqueue_storyboard_prompts_job
     enqueue_storyboard_prompts_job(job_id)
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
@@ -742,12 +804,40 @@ async def update_v2_frame_prompts(
             "user_approved": 0,
         },
     )
+    invalidate_v2_frame_assets(frame["job_id"], frame_id)
+    invalidate_v2_video_outputs(frame["job_id"])
+    update_job_fields(
+        frame["job_id"],
+        {
+            "workflow_stage": "prompts_ready",
+            "current_step": "Storyboard prompts updated",
+            "prompt_reviewed": 0,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
     return RedirectResponse(url=f"/v2/jobs/{frame['job_id']}?lang={resolve_lang(request)}", status_code=303)
 
 
 @app.post("/v2/jobs/{job_id}/generate-images")
 def generate_v2_images(request: Request, job_id: int):
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if int(job["prompt_reviewed"] or 0) != 1:
+        raise HTTPException(status_code=400, detail="Approve storyboard prompts before generating images.")
+    invalidate_v2_video_outputs(job_id)
     base_url = str(request.base_url).rstrip("/")
+    update_job_fields(
+        job_id,
+        {
+            "workflow_stage": "images_generating",
+            "current_step": "Generating storyboard images",
+            "prompt_reviewed": 1,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
     from task_queue import enqueue_storyboard_images_job
     enqueue_storyboard_images_job(job_id, base_url)
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
@@ -758,7 +848,17 @@ def regenerate_v2_image(request: Request, frame_id: int):
     frame = get_storyboard_frame(frame_id)
     if not frame:
         raise HTTPException(status_code=404, detail="Storyboard frame not found")
+    invalidate_v2_video_outputs(frame["job_id"])
     base_url = str(request.base_url).rstrip("/")
+    update_job_fields(
+        frame["job_id"],
+        {
+            "current_step": "Regenerating storyboard image",
+            "prompt_reviewed": 1,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
     from task_queue import enqueue_storyboard_images_job
     enqueue_storyboard_images_job(frame["job_id"], base_url, frame_id)
     return RedirectResponse(url=f"/v2/jobs/{frame['job_id']}?lang={resolve_lang(request)}", status_code=303)
@@ -770,10 +870,20 @@ def approve_v2_frame(request: Request, frame_id: int):
     if not frame:
         raise HTTPException(status_code=404, detail="Storyboard frame not found")
     approved = 0 if int(frame["user_approved"] or 0) == 1 else 1
+    invalidate_v2_video_outputs(frame["job_id"])
     update_storyboard_frame(frame_id, {"user_approved": approved})
     frames = get_storyboard_frames(frame["job_id"])
     next_stage = "images_approved" if frames and all(int(item["user_approved"] or 0) == 1 for item in frames) else "images_ready"
-    update_job_fields(frame["job_id"], {"workflow_stage": next_stage, "current_step": "Storyboard review in progress"})
+    update_job_fields(
+        frame["job_id"],
+        {
+            "workflow_stage": next_stage,
+            "current_step": "Storyboard review in progress",
+            "prompt_reviewed": 1,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
     return RedirectResponse(url=f"/v2/jobs/{frame['job_id']}?lang={resolve_lang(request)}", status_code=303)
 
 
@@ -782,14 +892,41 @@ def approve_all_v2(request: Request, job_id: int):
     frames = get_storyboard_frames(job_id)
     if not frames:
         raise HTTPException(status_code=404, detail="No storyboard frames found")
+    invalidate_v2_video_outputs(job_id)
     for frame in frames:
         update_storyboard_frame(frame["id"], {"user_approved": 1})
-    update_job_fields(job_id, {"workflow_stage": "images_approved", "current_step": "All storyboard frames approved"})
+    update_job_fields(
+        job_id,
+        {
+            "workflow_stage": "images_approved",
+            "current_step": "All storyboard frames approved",
+            "prompt_reviewed": 1,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
 
 
 @app.post("/v2/jobs/{job_id}/launch-video")
 def launch_v2_video(request: Request, job_id: int):
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if int(job["prompt_reviewed"] or 0) != 1:
+        raise HTTPException(status_code=400, detail="Approve storyboard prompts before generating video.")
+    frames = get_storyboard_frames(job_id)
+    if not frames or any(int(frame["user_approved"] or 0) != 1 for frame in frames):
+        raise HTTPException(status_code=400, detail="All storyboard images must be approved before video generation.")
+    update_job_fields(
+        job_id,
+        {
+            "prompt_reviewed": 1,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+            "current_step": "Queued for video generation",
+        },
+    )
     from task_queue import enqueue_storyboard_video_job
     enqueue_storyboard_video_job(job_id)
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
@@ -800,7 +937,22 @@ def set_v2_frame_version(request: Request, job_id: int, frame_id: int, version_i
     version = get_frame_image_version(version_id)
     if not version:
         raise HTTPException(status_code=404, detail="Image version not found")
-    set_current_frame_image_version(frame_id, version_id)
+    try:
+        set_current_frame_image_version(frame_id, version_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    invalidate_v2_video_outputs(job_id)
+    update_storyboard_frame(frame_id, {"user_approved": 0})
+    update_job_fields(
+        job_id,
+        {
+            "workflow_stage": "images_ready",
+            "current_step": "Storyboard version changed",
+            "prompt_reviewed": 1,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
 
 
@@ -822,13 +974,109 @@ def move_v2_frame(request: Request, job_id: int, frame_id: int, direction: str):
         raise HTTPException(status_code=400, detail="Already the last frame")
     swap_with = sorted_frames[current_idx - 1] if direction == "up" else sorted_frames[current_idx + 1]
     swap_storyboard_frame_positions(frame_id, swap_with["id"])
+    invalidate_v2_video_outputs(job_id)
+    update_job_fields(
+        job_id,
+        {
+            "current_step": "Storyboard order updated",
+            "prompt_reviewed": 1,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
 
 
 @app.post("/v2/jobs/{job_id}/publish")
 def publish_v2(request: Request, job_id: int):
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    frames = get_storyboard_frames(job_id)
+    if int(job["prompt_reviewed"] or 0) != 1 or any(int(frame["user_approved"] or 0) != 1 for frame in frames):
+        raise HTTPException(status_code=400, detail="Prompt and storyboard approvals must still be valid before publishing.")
+    if int(job["upload_to_youtube"] or 0) != 1:
+        raise HTTPException(status_code=400, detail="YouTube publishing is disabled for this job.")
+    if int(job["video_reviewed"] or 0) != 1 or int(job["publish_confirmed"] or 0) != 1:
+        raise HTTPException(status_code=400, detail="Video review and publish confirmation are required before publishing.")
     from task_queue import enqueue_publish_job
     enqueue_publish_job(job_id)
+    return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
+
+
+@app.post("/v2/jobs/{job_id}/confirm-prompts")
+def confirm_v2_prompts(request: Request, job_id: int):
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    frames = get_storyboard_frames(job_id)
+    if not frames:
+        raise HTTPException(status_code=400, detail="No storyboard prompts are ready yet.")
+    if any(not (frame["prompt_zh"] or "").strip() or not (frame["prompt_en"] or "").strip() for frame in frames):
+        raise HTTPException(status_code=400, detail="All storyboard prompt cards must have both Chinese and English prompts.")
+    reviewed = 0 if int(job["prompt_reviewed"] or 0) == 1 else 1
+    next_stage = "images_ready" if reviewed == 1 else "prompts_ready"
+    update_job_fields(
+        job_id,
+        {
+            "prompt_reviewed": reviewed,
+            "workflow_stage": next_stage,
+            "current_step": "Prompt review updated",
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
+    return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
+
+
+@app.post("/v2/jobs/{job_id}/clips/{clip_index}/regenerate")
+def regenerate_v2_clip(request: Request, job_id: int, clip_index: int):
+    from task_queue import enqueue_storyboard_single_clip_job
+
+    enqueue_storyboard_single_clip_job(job_id, clip_index)
+    return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
+
+
+@app.post("/v2/jobs/{job_id}/confirm-video")
+def confirm_v2_video(request: Request, job_id: int):
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    frames = get_storyboard_frames(job_id)
+    if int(job["prompt_reviewed"] or 0) != 1:
+        raise HTTPException(status_code=400, detail="Approve storyboard prompts before approving the video.")
+    if not frames or any(int(frame["user_approved"] or 0) != 1 for frame in frames):
+        raise HTTPException(status_code=400, detail="All storyboard images must remain approved before approving the video.")
+    if not job["final_video_path"]:
+        raise HTTPException(status_code=400, detail="Final video is not ready yet.")
+    reviewed = 0 if int(job["video_reviewed"] or 0) == 1 else 1
+    update_job_fields(
+        job_id,
+        {
+            "video_reviewed": reviewed,
+            "publish_confirmed": 0 if reviewed == 0 else int(job["publish_confirmed"] or 0),
+            "current_step": "Video review updated",
+        },
+    )
+    return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
+
+
+@app.post("/v2/jobs/{job_id}/confirm-publish")
+def confirm_v2_publish(request: Request, job_id: int):
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    frames = get_storyboard_frames(job_id)
+    if int(job["prompt_reviewed"] or 0) != 1:
+        raise HTTPException(status_code=400, detail="Approve storyboard prompts before confirming publish.")
+    if not frames or any(int(frame["user_approved"] or 0) != 1 for frame in frames):
+        raise HTTPException(status_code=400, detail="All storyboard images must remain approved before confirming publish.")
+    if not job["final_video_path"]:
+        raise HTTPException(status_code=400, detail="Final video is not ready yet.")
+    if int(job["video_reviewed"] or 0) != 1:
+        raise HTTPException(status_code=400, detail="Approve the video before confirming publish.")
+    confirmed = 0 if int(job["publish_confirmed"] or 0) == 1 else 1
+    update_job_fields(job_id, {"publish_confirmed": confirmed, "current_step": "Publish confirmation updated"})
     return RedirectResponse(url=f"/v2/jobs/{job_id}?lang={resolve_lang(request)}", status_code=303)
 
 
@@ -842,6 +1090,18 @@ def v2_job_video(job_id: int):
     if not video_path.exists():
         raise HTTPException(status_code=404, detail="Video file not found")
     return FileResponse(video_path, media_type="video/mp4")
+
+
+@app.get("/v2/jobs/{job_id}/clips/{clip_index}/video")
+def v2_clip_video(job_id: int, clip_index: int):
+    clip_rows = get_clip_rows_by_job_id(job_id)
+    clip = next((row for row in clip_rows if int(row["clip_index"]) == int(clip_index)), None)
+    if not clip or not clip["local_path"]:
+        raise HTTPException(status_code=404, detail="Clip video not found")
+    clip_path = Path(clip["local_path"])
+    if not clip_path.exists():
+        raise HTTPException(status_code=404, detail="Clip video file missing")
+    return FileResponse(clip_path, media_type="video/mp4")
 
 
 @app.get("/v2/storyboards/versions/{version_id}/image")

@@ -58,6 +58,7 @@ def init_db() -> None:
             style_preference TEXT,
             prompt_total_tokens INTEGER DEFAULT 0,
             prompt_estimated_cost_cny REAL DEFAULT 0,
+            prompt_reviewed INTEGER DEFAULT 0,
             image_total_tokens INTEGER DEFAULT 0,
             image_estimated_cost_cny REAL DEFAULT 0,
             video_total_tokens INTEGER DEFAULT 0,
@@ -65,6 +66,8 @@ def init_db() -> None:
             publish_total_tokens INTEGER DEFAULT 0,
             publish_estimated_cost_cny REAL DEFAULT 0,
             total_estimated_cost_cny REAL DEFAULT 0,
+            video_reviewed INTEGER DEFAULT 0,
+            publish_confirmed INTEGER DEFAULT 0,
             error_message TEXT,
             uploaded_images_note TEXT,
             created_at TEXT NOT NULL,
@@ -86,6 +89,7 @@ def init_db() -> None:
     ensure_column(cur, "jobs", "style_preference", "TEXT")
     ensure_column(cur, "jobs", "prompt_total_tokens", "INTEGER DEFAULT 0")
     ensure_column(cur, "jobs", "prompt_estimated_cost_cny", "REAL DEFAULT 0")
+    ensure_column(cur, "jobs", "prompt_reviewed", "INTEGER DEFAULT 0")
     ensure_column(cur, "jobs", "image_total_tokens", "INTEGER DEFAULT 0")
     ensure_column(cur, "jobs", "image_estimated_cost_cny", "REAL DEFAULT 0")
     ensure_column(cur, "jobs", "video_total_tokens", "INTEGER DEFAULT 0")
@@ -93,6 +97,8 @@ def init_db() -> None:
     ensure_column(cur, "jobs", "publish_total_tokens", "INTEGER DEFAULT 0")
     ensure_column(cur, "jobs", "publish_estimated_cost_cny", "REAL DEFAULT 0")
     ensure_column(cur, "jobs", "total_estimated_cost_cny", "REAL DEFAULT 0")
+    ensure_column(cur, "jobs", "video_reviewed", "INTEGER DEFAULT 0")
+    ensure_column(cur, "jobs", "publish_confirmed", "INTEGER DEFAULT 0")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS clips (
@@ -238,11 +244,11 @@ def create_job(payload: Dict[str, Any]) -> int:
             reference_image_urls_json, status, current_step, final_video_path,
             youtube_url, total_tokens, estimated_cost_cny, workflow_version, workflow_stage,
             idea_title, simple_idea, target_audience, language, style_preference,
-            prompt_total_tokens, prompt_estimated_cost_cny, image_total_tokens,
+            prompt_total_tokens, prompt_estimated_cost_cny, prompt_reviewed, image_total_tokens,
             image_estimated_cost_cny, video_total_tokens, video_estimated_cost_cny,
             publish_total_tokens, publish_estimated_cost_cny, total_estimated_cost_cny, error_message,
-            uploaded_images_note, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            video_reviewed, publish_confirmed, uploaded_images_note, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload["project_name"],
@@ -276,6 +282,7 @@ def create_job(payload: Dict[str, Any]) -> int:
             payload.get("style_preference", ""),
             payload.get("prompt_total_tokens", 0),
             payload.get("prompt_estimated_cost_cny", 0),
+            payload.get("prompt_reviewed", 0),
             payload.get("image_total_tokens", 0),
             payload.get("image_estimated_cost_cny", 0),
             payload.get("video_total_tokens", 0),
@@ -284,6 +291,8 @@ def create_job(payload: Dict[str, Any]) -> int:
             payload.get("publish_estimated_cost_cny", 0),
             payload.get("total_estimated_cost_cny", 0),
             payload.get("error_message"),
+            payload.get("video_reviewed", 0),
+            payload.get("publish_confirmed", 0),
             payload.get("uploaded_images_note", ""),
             now,
             now,
@@ -483,6 +492,14 @@ def delete_storyboard_frames_for_job(job_id: int) -> None:
     conn.close()
 
 
+def delete_frame_image_versions(frame_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM frame_image_versions WHERE frame_id = ?", (frame_id,))
+    conn.commit()
+    conn.close()
+
+
 def update_storyboard_frame(frame_id: int, fields: Dict[str, Any]) -> None:
     if not fields:
         return
@@ -582,6 +599,11 @@ def update_frame_image_version(version_id: int, fields: Dict[str, Any]) -> None:
 def set_current_frame_image_version(frame_id: int, version_id: int) -> None:
     conn = get_conn()
     cur = conn.cursor()
+    cur.execute("SELECT frame_id FROM frame_image_versions WHERE id = ?", (version_id,))
+    owner = cur.fetchone()
+    if not owner or int(owner["frame_id"]) != int(frame_id):
+        conn.close()
+        raise ValueError(f"Image version {version_id} does not belong to frame {frame_id}")
     # Mark all versions for this frame as not current
     cur.execute("UPDATE frame_image_versions SET is_current = 0 WHERE frame_id = ?", (frame_id,))
     # Mark selected version as current
@@ -605,6 +627,33 @@ def set_current_frame_image_version(frame_id: int, version_id: int) -> None:
             """,
             (row["image_remote_url"], row["image_local_path"], row["image_status"], row["image_model"], row["tokens"], row["estimated_cost_cny"], row["version_no"], frame_id),
         )
+    conn.commit()
+    conn.close()
+
+
+def delete_usage_events(
+    job_id: int,
+    *,
+    stages: Optional[Sequence[str]] = None,
+    entity_type: Optional[str] = None,
+    entity_id: Optional[int] = None,
+) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    clauses = ["job_id = ?"]
+    values: List[Any] = [job_id]
+    if stages:
+        placeholders = ", ".join("?" for _ in stages)
+        clauses.append(f"stage IN ({placeholders})")
+        values.extend(list(stages))
+    if entity_type is not None:
+        clauses.append("entity_type = ?")
+        values.append(entity_type)
+    if entity_id is not None:
+        clauses.append("entity_id = ?")
+        values.append(entity_id)
+    where_clause = " AND ".join(clauses)
+    cur.execute(f"DELETE FROM usage_events WHERE {where_clause}", values)
     conn.commit()
     conn.close()
 

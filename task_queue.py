@@ -35,7 +35,7 @@ RETRY_DELAY_SEC = int(os.getenv("JOB_RETRY_DELAY", "5"))
 
 _redis_client: Optional[Redis] = None
 _queue: Optional[Queue] = None
-STATIC_JOB_PREFIXES = ("video", "prompts", "storyboard_video", "publish")
+STATIC_JOB_PREFIXES = ("video", "prompts", "storyboard_video", "publish", "storyboard_clip")
 
 
 def _enqueue_with_reusable_job_id(*, job_id: str, func: str, args: List[Any], job_timeout: int) -> RQJob:
@@ -122,6 +122,16 @@ def enqueue_storyboard_video_job(job_id: int) -> RQJob:
     )
 
 
+def enqueue_storyboard_single_clip_job(job_id: int, clip_index: int) -> RQJob:
+    """Enqueue regeneration for a single storyboard-derived clip."""
+    return _enqueue_with_reusable_job_id(
+        job_id=f"storyboard_clip_{job_id}_{clip_index}",
+        func="task_queue.run_storyboard_single_clip_wrapper",
+        args=[job_id, clip_index],
+        job_timeout=1800,
+    )
+
+
 def enqueue_publish_job(job_id: int) -> RQJob:
     """Enqueue a YouTube publish job."""
     return _enqueue_with_reusable_job_id(
@@ -139,36 +149,76 @@ def enqueue_publish_job(job_id: int) -> RQJob:
 def run_video_job_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper that runs the 1.0 video job with parallel clip generation."""
     from video_core import ensure_runtime_dirs, run_video_job_parallel
+    from db import get_job_by_id
+
     ensure_runtime_dirs()
-    return run_video_job_parallel(job_id)
+    result = run_video_job_parallel(job_id)
+    job = get_job_by_id(job_id)
+    if (isinstance(result, dict) and result.get("status") == "failed") or (job and job["status"] == "failed"):
+        raise RuntimeError((job["error_message"] if job else None) or f"Video generation failed for job {job_id}")
+    return result
 
 
 def run_storyboard_prompts_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper for storyboard prompt generation."""
     from app import generate_storyboard_prompts_job as _run
+    from db import get_job_by_id
+
     _run(job_id)
-    return {"job_id": job_id, "stage": "prompts_ready"}
+    job = get_job_by_id(job_id)
+    if not job or job["workflow_stage"] == "failed":
+        raise RuntimeError((job["error_message"] if job else None) or f"Storyboard prompt generation failed for job {job_id}")
+    return {"job_id": job_id, "stage": job["workflow_stage"]}
 
 
 def run_storyboard_images_wrapper(job_id: int, base_url: str, frame_id: int = None) -> Dict[str, Any]:
     """Wrapper for storyboard image generation."""
     from app import generate_storyboard_images_job as _run
+    from db import get_job_by_id
+
     _run(job_id, base_url, frame_id)
-    return {"job_id": job_id, "stage": "images_ready"}
+    job = get_job_by_id(job_id)
+    if not job or job["workflow_stage"] == "failed":
+        raise RuntimeError((job["error_message"] if job else None) or f"Storyboard image generation failed for job {job_id}")
+    return {"job_id": job_id, "stage": job["workflow_stage"]}
 
 
 def run_storyboard_video_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper for 2.0 storyboard video generation."""
     from video_core import ensure_runtime_dirs, run_storyboard_video_job_parallel
+    from db import get_job_by_id
+
     ensure_runtime_dirs()
-    return run_storyboard_video_job_parallel(job_id)
+    result = run_storyboard_video_job_parallel(job_id)
+    job = get_job_by_id(job_id)
+    if (isinstance(result, dict) and result.get("status") == "failed") or (job and job["workflow_stage"] == "failed"):
+        raise RuntimeError((job["error_message"] if job else None) or f"Storyboard video generation failed for job {job_id}")
+    return result
+
+
+def run_storyboard_single_clip_wrapper(job_id: int, clip_index: int) -> Dict[str, Any]:
+    """Wrapper for single-clip regeneration from storyboard."""
+    from video_core import ensure_runtime_dirs, run_storyboard_single_clip_regeneration
+    from db import get_job_by_id
+
+    ensure_runtime_dirs()
+    result = run_storyboard_single_clip_regeneration(job_id, clip_index)
+    job = get_job_by_id(job_id)
+    if (isinstance(result, dict) and result.get("status") == "failed") or (job and job["workflow_stage"] == "failed"):
+        raise RuntimeError((job["error_message"] if job else None) or f"Storyboard clip regeneration failed for job {job_id}, clip {clip_index}")
+    return result
 
 
 def run_publish_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper for YouTube publishing."""
     from app import publish_v2_job as _run
+    from db import get_job_by_id
+
     _run(job_id)
-    return {"job_id": job_id, "stage": "published"}
+    job = get_job_by_id(job_id)
+    if not job or job["workflow_stage"] == "failed":
+        raise RuntimeError((job["error_message"] if job else None) or f"YouTube publishing failed for job {job_id}")
+    return {"job_id": job_id, "stage": job["workflow_stage"], "youtube_url": job["youtube_url"]}
 
 
 # ---------------------------------------------------------------------------
@@ -180,11 +230,12 @@ def _list_rq_job_ids(job_id: int) -> List[str]:
     redis_conn = get_redis()
     job_ids = [f"{prefix}_{job_id}" for prefix in STATIC_JOB_PREFIXES]
 
-    for key in redis_conn.scan_iter(match=f"rq:job:images_{job_id}_*"):
-        if isinstance(key, bytes):
-            key = key.decode("utf-8")
-        if isinstance(key, str) and key.startswith("rq:job:"):
-            job_ids.append(key[len("rq:job:") :])
+    for pattern in (f"rq:job:images_{job_id}_*", f"rq:job:storyboard_clip_{job_id}_*"):
+        for key in redis_conn.scan_iter(match=pattern):
+            if isinstance(key, bytes):
+                key = key.decode("utf-8")
+            if isinstance(key, str) and key.startswith("rq:job:"):
+                job_ids.append(key[len("rq:job:") :])
 
     seen = set()
     deduped: List[str] = []

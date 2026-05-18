@@ -112,6 +112,24 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 The web app now enqueues long-running jobs into Redis/RQ, so a Redis server and at least one worker process must be running for video/image/publish tasks to progress.
 
+## 2.0 Smoke Test
+
+To verify the 2.0 gated storyboard workflow locally without calling external APIs:
+
+```bash
+python3 scripts/test_v2_workflow_smoke.py
+```
+
+This smoke test covers:
+
+- 2.0 job creation
+- prompt generation and prompt approval gate
+- image generation gate
+- image approval gate
+- video approval gate
+- publish confirmation gate
+- single-clip regeneration route
+
 ## Docker Local Test
 
 ```bash

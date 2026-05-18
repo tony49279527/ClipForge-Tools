@@ -19,6 +19,7 @@ except ImportError:
 from db import (
     create_clip_records,
     delete_clips_for_job,
+    get_clip_rows_by_job_id,
     get_current_frame_image_version,
     get_job_by_id,
     get_storyboard_frame,
@@ -42,8 +43,8 @@ SEEDANCE_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 SEEDANCE_MODEL = os.getenv("SEEDANCE_MODEL", "doubao-seedance-2-0-260128")
 
 STYLE_PREFIX = (
-    "真实美国车库五金工具广告风格。场景为美国家庭车库、木质工作台、红色工具箱、墙面 pegboard、bench grinder、"
-    "RV trailer hitch、铝合金零件。只出现戴黑色工作手套的成年男性双手，不出现人脸。真实摄影质感、浅景深、"
+    "真实美国车库五金与电动工具广告风格。场景为美国家庭车库、木质工作台、红色工具箱、墙面 pegboard、木板、"
+    "螺丝、夹具与常见工具配件。只出现戴黑色工作手套的成年男性双手，不出现人脸。真实摄影质感、浅景深、"
     "自然车库光、稳定镜头、专业可信。不要文字、不要 logo、不要卡通、不要科幻、不要人脸、不要危险动作、不要夸张火花。"
 )
 
@@ -89,24 +90,24 @@ def build_clip_prompts(job: Dict[str, Any]) -> List[Dict[str, Optional[str]]]:
         ]
     elif clip_count == 20:
         beats = [
-            "Hook: dull metal to mirror shine",
+            "Hook: manual screwdriving is slow and tiring",
             "Product hero closeup",
-            "Package / wheel texture detail",
-            "Bench grinder setup",
-            "Safety preparation",
-            "Polishing compound application",
-            "First contact with metal",
-            "Aluminum part polishing",
-            "Brass part polishing",
-            "RV hitch ball polishing",
-            "Trailer bracket polishing",
+            "Battery pack and charger detail",
+            "Drill bit / driver bit change",
+            "Torque ring and speed selector",
+            "LED work light closeup",
+            "Pilot hole drilling in pine board",
+            "Fast drilling through soft wood",
+            "Driving a wood screw flush",
+            "Driving multiple screws in sequence",
+            "Overhead work / compact body control",
             "Before-after comparison",
             "Garage DIY lifestyle",
-            "Automotive restoration use case",
-            "RV maintenance use case",
+            "Furniture assembly use case",
+            "Home repair use case",
             "Material compatibility visual",
-            "Durability / thick cotton layers",
-            "Final shine montage",
+            "Battery endurance / portability highlight",
+            "Finished project montage",
             "Product on workbench hero shot",
             "CTA: check product link in description",
         ]
@@ -664,6 +665,8 @@ def run_storyboard_video_job(job_id: int) -> None:
                 "workflow_stage": "videos_generating",
                 "current_step": "Preparing approved storyboard frames",
                 "error_message": None,
+                "video_reviewed": 0,
+                "publish_confirmed": 0,
             },
         )
         specs = build_storyboard_video_specs(job)
@@ -1083,6 +1086,75 @@ def _generate_single_storyboard_clip(
         return None
 
 
+def _collect_sorted_successful_clip_paths(job_id: int) -> List[Path]:
+    clip_rows = get_clip_rows_by_job_id(job_id)
+    successful = []
+    for row in clip_rows:
+        if row["status"] == "succeeded" and row["local_path"]:
+            path = Path(row["local_path"])
+            if path.exists():
+                successful.append((row["clip_index"], path))
+    successful.sort(key=lambda item: item[0])
+    return [path for _, path in successful]
+
+
+def run_storyboard_single_clip_regeneration(job_id: int, clip_index: int) -> Dict[str, Any]:
+    """Regenerate one clip from the approved storyboard and then rebuild final video."""
+    job = get_job_by_id(job_id)
+    if not job:
+        return {"job_id": job_id, "status": "not_found"}
+
+    specs = build_storyboard_video_specs(job)
+    spec = next((item for item in specs if int(item["clip_index"]) == int(clip_index)), None)
+    if not spec:
+        raise RuntimeError(f"Storyboard spec for clip {clip_index} not found.")
+
+    job_output_dir = OUTPUTS_DIR / str(job_id)
+    clips_dir = job_output_dir / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+
+    update_job_fields(
+        job_id,
+        {
+            "status": "generating_clips",
+            "workflow_stage": "videos_generating",
+            "current_step": f"Regenerating clip {clip_index}",
+            "error_message": None,
+            "video_reviewed": 0,
+            "publish_confirmed": 0,
+        },
+    )
+    path = _generate_single_storyboard_clip(job_id, spec, clips_dir, job)
+    if not path:
+        raise RuntimeError(f"Clip {clip_index} regeneration failed.")
+
+    clip_paths = _collect_sorted_successful_clip_paths(job_id)
+    final_video_path = None
+    if int(job["stitch_final_video"]) == 1 and clip_paths:
+        update_job_fields(job_id, {"status": "stitching", "workflow_stage": "videos_generating", "current_step": "Rebuilding final video"})
+        final_video_path = concat_clips(clip_paths, job_output_dir / "final_video.mp4")
+        update_job_fields(job_id, {"final_video_path": str(final_video_path)})
+    elif clip_paths:
+        final_video_path = clip_paths[0]
+        update_job_fields(job_id, {"final_video_path": str(final_video_path)})
+
+    refresh_job_usage_totals(job_id)
+    update_job_fields(
+        job_id,
+        {
+            "status": "succeeded",
+            "workflow_stage": "videos_ready",
+            "current_step": f"Clip {clip_index} regenerated",
+        },
+    )
+    return {
+        "job_id": job_id,
+        "status": "succeeded",
+        "clip_index": clip_index,
+        "final_video": str(final_video_path) if final_video_path else None,
+    }
+
+
 def run_storyboard_video_job_parallel(job_id: int) -> Dict[str, Any]:
     """Run a 2.0 storyboard video job with parallel clip generation."""
     job = get_job_by_id(job_id)
@@ -1101,6 +1173,8 @@ def run_storyboard_video_job_parallel(job_id: int) -> Dict[str, Any]:
                 "workflow_stage": "videos_generating",
                 "current_step": "Preparing approved storyboard frames",
                 "error_message": None,
+                "video_reviewed": 0,
+                "publish_confirmed": 0,
             },
         )
         specs = build_storyboard_video_specs(job)

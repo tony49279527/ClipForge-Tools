@@ -42,6 +42,35 @@
             </button>
         </div>
     </div>
+<section class="workflow-intro">
+    <article class="workflow-intro-card">
+        <span class="workflow-intro-index">0</span>
+        <div>
+            <h3>{% if is_zh %}输入想法{% else %}Idea Intake{% endif %}</h3>
+            <p>{% if is_zh %}先输入产品、受众和一个简单创意，系统先帮你把需求拆成分镜。{% else %}Start with the product, audience, and a simple idea. The system breaks it into storyboard scenes first.{% endif %}</p>
+        </div>
+    </article>
+    <article class="workflow-intro-card">
+        <span class="workflow-intro-index">1</span>
+        <div>
+            <h3>{% if is_zh %}审核 Prompt{% else %}Review Prompts{% endif %}</h3>
+            <p>{% if is_zh %}逐卡编辑中英双语 prompt，确认整组分镜方向后，才进入图片阶段。{% else %}Edit bilingual prompt cards and approve the full storyboard direction before image generation unlocks.{% endif %}</p>
+        </div>
+    </article>
+    <article class="workflow-intro-card">
+        <span class="workflow-intro-index">2</span>
+        <div>
+            <h3>{% if is_zh %}确认图片{% else %}Approve Images{% endif %}</h3>
+            <p>{% if is_zh %}单张重生成、切版本、排序，直到静态分镜图满意，再决定是否烧视频成本。{% else %}Regenerate, switch versions, and reorder frames until the storyboard images are good enough for video spend.{% endif %}</p>
+        </div>
+    </article>
+    <article class="workflow-intro-card">
+        <span class="workflow-intro-index">3</span>
+        <div>
+            <h3>{% if is_zh %}视频与发布{% else %}Video and Publish{% endif %}</h3>
+            <p>{% if is_zh %}支持单段视频重生成，最后还要再确认视频满意和发布意图，才会真正上传 YouTube。{% else %}Regenerate a single clip when needed, then confirm both video approval and publish intent before YouTube upload.{% endif %}</p>
+        </div>
+    </article>
 </section>
 
 <section class="card form-shell">
@@ -49,6 +78,7 @@
         <div>
             <span class="eyebrow">{% if is_zh %}第 0 步{% else %}Step 0{% endif %}</span>
             <h2>{% if is_zh %}先输入一个简单想法{% else %}Start with a simple idea{% endif %}</h2>
+            <p class="hint compact">{% if is_zh %}这是 2.0 的入口页。真正的审核、重生成、确认与发布动作都会在任务工作台里继续完成。{% else %}This is the 2.0 entry point. Review, regeneration, approval, and publish actions continue in the job workspace after creation.{% endif %}</p>
         </div>
         <a class="btn ghost" href="/v2/jobs?lang={{ lang }}">{% if is_zh %}查看 2.0 任务{% else %}View 2.0 Jobs{% endif %}</a>
     </div>
@@ -198,11 +228,12 @@
                     <strong id="cost-video">¥0.00</strong>
                 </div>
             </div>
-            <div class="cost-estimate-total">
-                <span>{% if is_zh %}预估总计{% else %}Estimated Total{% endif %}</span>
-                <strong id="cost-total">¥0.00</strong>
-            </div>
+        <div class="cost-estimate-total">
+            <span>{% if is_zh %}预估总计{% else %}Estimated Total{% endif %}</span>
+            <strong id="cost-total">¥0.00</strong>
         </div>
+        <p class="hint compact">{% if is_zh %}这里是“进入 2.0 前的粗估”。真实费用会在 Prompt、图片、视频三个阶段按实际 usage 分开记录。{% else %}This is a pre-flight estimate. Real costs are recorded separately across prompt, image, and video stages from actual usage events.{% endif %}</p>
+    </div>
 
         <div class="form-actions">
             <button class="btn primary" type="submit">{% if is_zh %}开始 2.0 工作流{% else %}Start 2.0 Workflow{% endif %}</button>

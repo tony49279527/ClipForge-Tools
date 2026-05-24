@@ -1363,6 +1363,7 @@ async def api_create_external_job(
         "status": "queued",
         "current_step": "queued",
         "uploaded_images_note": "",
+        "source": "api",
     }
 
     job_id = create_job(job_payload)

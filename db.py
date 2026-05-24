@@ -99,6 +99,7 @@ def init_db() -> None:
     ensure_column(cur, "jobs", "total_estimated_cost_cny", "REAL DEFAULT 0")
     ensure_column(cur, "jobs", "video_reviewed", "INTEGER DEFAULT 0")
     ensure_column(cur, "jobs", "publish_confirmed", "INTEGER DEFAULT 0")
+    ensure_column(cur, "jobs", "source", "TEXT DEFAULT 'web'")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS clips (
@@ -247,8 +248,8 @@ def create_job(payload: Dict[str, Any]) -> int:
             prompt_total_tokens, prompt_estimated_cost_cny, prompt_reviewed, image_total_tokens,
             image_estimated_cost_cny, video_total_tokens, video_estimated_cost_cny,
             publish_total_tokens, publish_estimated_cost_cny, total_estimated_cost_cny, error_message,
-            video_reviewed, publish_confirmed, uploaded_images_note, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            video_reviewed, publish_confirmed, uploaded_images_note, source, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload["project_name"],
@@ -294,6 +295,7 @@ def create_job(payload: Dict[str, Any]) -> int:
             payload.get("video_reviewed", 0),
             payload.get("publish_confirmed", 0),
             payload.get("uploaded_images_note", ""),
+            payload.get("source", "web"),
             now,
             now,
         ),

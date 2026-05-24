@@ -24,6 +24,7 @@
             <thead>
                 <tr>
                     <th>ID</th>
+                    <th>{% if is_zh %}来源{% else %}Source{% endif %}</th>
                     <th>{% if is_zh %}项目{% else %}Project{% endif %}</th>
                     <th>{% if is_zh %}产品{% else %}Product{% endif %}</th>
                     <th>{% if is_zh %}状态{% else %}Status{% endif %}</th>
@@ -36,6 +37,13 @@
                 {% for job in jobs %}
                 <tr>
                     <td><a href="/jobs/{{ job['id'] }}?lang={{ lang }}">#{{ job["id"] }}</a></td>
+                    <td>
+                        {% if job["source"] == "api" %}
+                        <span class="badge badge-api" style="background-color: #6366f1; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; display: inline-block;">🤖 Hermes API</span>
+                        {% else %}
+                        <span class="badge badge-web" style="background-color: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; display: inline-block;">💻 {% if is_zh %}网页端{% else %}Web{% endif %}</span>
+                        {% endif %}
+                    </td>
                     <td>{{ job["project_name"] }}</td>
                     <td>{{ job["product_name"] }}</td>
                     <td><span class="status {{ job['status'] }}">{{ status_label(job["status"]) }}</span></td>
@@ -51,7 +59,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="7">{% if is_zh %}还没有任务。可以先从“新建任务”页面创建第一条视频生成任务。{% else %}No jobs yet. Create the first product video run from the New Job page.{% endif %}</td>
+                    <td colspan="8">{% if is_zh %}还没有任务。可以先从“新建任务”页面创建第一条视频生成任务。{% else %}No jobs yet. Create the first product video run from the New Job page.{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>

@@ -34,14 +34,15 @@
     <div id="scrape-result" style="display:none;" class="scrape-result-panel">
         <div class="scrape-images" id="scrape-images"></div>
         <div class="scrape-info">
-            <p><strong>{% if is_zh %}产品名{% else %}Product{% endif %}:</strong> <span id="scrape-title"></span></p>
-            <p><strong>{% if is_zh %}平台{% else %}Platform{% endif %}:</strong> <span id="scrape-platform"></span></p>
-            <p><strong>{% if is_zh %}受众{% else %}Audience{% endif %}:</strong> <span id="scrape-audience"></span></p>
+            <p><strong>{% if is_zh %}产品名称{% else %}Product{% endif %}:</strong> <span id="scrape-title"></span></p>
+            <p><strong>{% if is_zh %}平台来源{% else %}Platform{% endif %}:</strong> <span id="scrape-platform"></span></p>
+            <p><strong>{% if is_zh %}目标受众{% else %}Audience{% endif %}:</strong> <span id="scrape-audience"></span></p>
             <button type="button" class="btn primary" id="btn-apply-scrape">
                 {% if is_zh %}✅ 应用到表单{% else %}✅ Apply to Form{% endif %}
             </button>
         </div>
     </div>
+</section>
 <section class="workflow-intro">
     <article class="workflow-intro-card">
         <span class="workflow-intro-index">0</span>
@@ -53,21 +54,21 @@
     <article class="workflow-intro-card">
         <span class="workflow-intro-index">1</span>
         <div>
-            <h3>{% if is_zh %}审核 Prompt{% else %}Review Prompts{% endif %}</h3>
+            <h3>{% if is_zh %}审核提示词{% else %}Review Prompts{% endif %}</h3>
             <p>{% if is_zh %}逐卡编辑中英双语 prompt，确认整组分镜方向后，才进入图片阶段。{% else %}Edit bilingual prompt cards and approve the full storyboard direction before image generation unlocks.{% endif %}</p>
         </div>
     </article>
     <article class="workflow-intro-card">
         <span class="workflow-intro-index">2</span>
         <div>
-            <h3>{% if is_zh %}确认图片{% else %}Approve Images{% endif %}</h3>
+            <h3>{% if is_zh %}确认分镜图{% else %}Approve Images{% endif %}</h3>
             <p>{% if is_zh %}单张重生成、切版本、排序，直到静态分镜图满意，再决定是否烧视频成本。{% else %}Regenerate, switch versions, and reorder frames until the storyboard images are good enough for video spend.{% endif %}</p>
         </div>
     </article>
     <article class="workflow-intro-card">
         <span class="workflow-intro-index">3</span>
         <div>
-            <h3>{% if is_zh %}视频与发布{% else %}Video and Publish{% endif %}</h3>
+            <h3>{% if is_zh %}生成视频并发布{% else %}Video and Publish{% endif %}</h3>
             <p>{% if is_zh %}支持单段视频重生成，最后还要再确认视频满意和发布意图，才会真正上传 YouTube。{% else %}Regenerate a single clip when needed, then confirm both video approval and publish intent before YouTube upload.{% endif %}</p>
         </div>
     </article>
@@ -83,10 +84,9 @@
         <a class="btn ghost" href="/v2/jobs?lang={{ lang }}">{% if is_zh %}查看 2.0 任务{% else %}View 2.0 Jobs{% endif %}</a>
     </div>
 
-    <!-- Template Presets Bar -->
     <div class="template-bar">
         <div class="template-bar-row">
-            <label class="template-label">{% if is_zh %}模板{% else %}Template{% endif %}</label>
+            <label class="template-label">{% if is_zh %}模板方案{% else %}Template{% endif %}</label>
             <select id="template-select" class="template-select">
                 <option value="">{% if is_zh %}-- 选择模板 --{% else %}-- Select Template --{% endif %}</option>
             </select>
@@ -131,13 +131,13 @@
                 <p>{% if is_zh %}这里控制最终视频的节奏和发布配置。2.0 会先走 prompt 和 storyboard 阶段。{% else %}These settings control the final video cadence and publishing. 2.0 still goes through prompt and storyboard stages first.{% endif %}</p>
             </div>
             <div class="grid three">
-                <label>Video Mode
+                <label>{% if is_zh %}视频类型{% else %}Video Mode{% endif %}
                     <select name="video_mode">
-                        <option value="shorts">shorts</option>
-                        <option value="long_video" selected>long_video</option>
+                        <option value="shorts">{{ video_mode_label("shorts") }}</option>
+                        <option value="long_video" selected>{{ video_mode_label("long_video") }}</option>
                     </select>
                 </label>
-                <label>Ratio
+                <label>{% if is_zh %}画面比例{% else %}Ratio{% endif %}
                     <select name="ratio">
                         <option value="9:16" selected>9:16</option>
                         <option value="16:9">16:9</option>
@@ -160,17 +160,17 @@
                         <option value="15">15</option>
                     </select>
                 </label>
-                <label>Resolution
+                <label>{% if is_zh %}分辨率{% else %}Resolution{% endif %}
                     <select name="resolution">
                         <option value="480p">480p</option>
                         <option value="720p" selected>720p</option>
                     </select>
                 </label>
-                <label>Privacy
+                <label>{% if is_zh %}可见性{% else %}Privacy{% endif %}
                     <select name="privacy">
-                        <option value="private">private</option>
-                        <option value="unlisted" selected>unlisted</option>
-                        <option value="public">public</option>
+                        <option value="private">{{ privacy_label("private") }}</option>
+                        <option value="unlisted" selected>{{ privacy_label("unlisted") }}</option>
+                        <option value="public">{{ privacy_label("public") }}</option>
                     </select>
                 </label>
             </div>
@@ -178,11 +178,11 @@
 
         <section class="form-section">
             <div class="form-section-head">
-                <h3>YouTube</h3>
+                <h3>YouTube {% if is_zh %}设置{% else %}Settings{% endif %}</h3>
                 <p>{% if is_zh %}2.0 默认把发布放在最后一步，但可以提前保存标题和上传账号。{% else %}2.0 keeps publishing as the last step, but you can prefill the title and account now.{% endif %}</p>
             </div>
             <div class="grid two">
-                <label>YouTube Title
+                <label>{% if is_zh %}YouTube 标题{% else %}YouTube Title{% endif %}
                     <input type="text" name="youtube_title" required value="{{ sample_idea.youtube_title }}">
                 </label>
                 <label>{% if is_zh %}上传账号{% else %}Upload Account{% endif %}
@@ -196,7 +196,7 @@
                     </select>
                 </label>
             </div>
-            <label>YouTube Description
+            <label>{% if is_zh %}YouTube 描述{% else %}YouTube Description{% endif %}
                 <textarea name="youtube_description" rows="4">{{ sample_idea.youtube_description }}</textarea>
             </label>
             <label class="checkbox">
@@ -208,7 +208,6 @@
             </label>
         </section>
 
-        <!-- Cost Estimate Panel -->
         <div class="cost-estimate" id="cost-estimate">
             <div class="cost-estimate-head">
                 <span class="eyebrow">{% if is_zh %}费用预估{% else %}Cost Estimate{% endif %}</span>
@@ -216,15 +215,15 @@
             </div>
             <div class="grid three stats-grid" id="cost-breakdown">
                 <div class="metric">
-                    <span>Prompt</span>
+                    <span>{% if is_zh %}提示词{% else %}Prompt{% endif %}</span>
                     <strong id="cost-prompt">¥0.00</strong>
                 </div>
                 <div class="metric">
-                    <span>Images</span>
+                    <span>{% if is_zh %}分镜图{% else %}Images{% endif %}</span>
                     <strong id="cost-images">¥0.00</strong>
                 </div>
                 <div class="metric">
-                    <span>Video</span>
+                    <span>{% if is_zh %}视频{% else %}Video{% endif %}</span>
                     <strong id="cost-video">¥0.00</strong>
                 </div>
             </div>
@@ -341,7 +340,7 @@ async function loadTemplateList() {
             }
         }
     } catch (e) {
-        console.error('Failed to load templates', e);
+        console.error('{% if is_zh %}加载模板列表失败{% else %}Failed to load templates{% endif %}', e);
     }
     toggleDeleteButton();
 }
@@ -365,7 +364,7 @@ document.getElementById('template-select').addEventListener('change', async func
         const tpl = await resp.json();
         applyTemplate(tpl);
     } catch (e) {
-        console.error('Failed to load template', e);
+        console.error('{% if is_zh %}加载模板失败{% else %}Failed to load template{% endif %}', e);
     }
 });
 
@@ -391,7 +390,7 @@ document.getElementById('btn-save-template').addEventListener('click', async fun
             }
             toggleDeleteButton();
         } else {
-            alert('{% if is_zh %}保存失败：{% else %}Save failed:{% endif %} ' + (result.detail || 'Unknown error'));
+            alert('{% if is_zh %}保存失败：{% else %}Save failed:{% endif %} ' + (result.detail || '{% if is_zh %}未知错误{% else %}Unknown error{% endif %}'));
         }
     } catch (e) {
         alert('{% if is_zh %}保存失败：{% else %}Save failed:{% endif %} ' + e.message);
@@ -462,7 +461,7 @@ scrapeBtn.addEventListener('click', async () => {
         scrapeResult.style.display = 'flex';
         scrapeStatus.textContent = '{% if is_zh %}✅ 抓取完成{% else %}✅ Done{% endif %}';
     } catch (e) {
-        scrapeStatus.textContent = '❌ ' + e.message;
+        scrapeStatus.textContent = '{% if is_zh %}❌ 抓取失败：{% else %}❌ {% endif %}' + e.message;
     } finally {
         scrapeBtn.disabled = false;
     }
@@ -477,18 +476,18 @@ applyBtn.addEventListener('click', () => {
         if (el && value) el.value = value;
     };
     setVal('product_name', scrapedData.title);
-    setVal('project_name', scrapedData.title ? scrapedData.title + ' Video' : '');
+    setVal('project_name', scrapedData.title ? (scrapedData.title + ({% if is_zh %}' 视频项目'{% else %}' Video'{% endif %})) : '');
     setVal('idea_title', scrapedData.title);
     setVal('target_audience', scrapedData.target_audience);
     if (scrapedData.features && scrapedData.features.length > 0) {
         setVal('simple_idea', scrapedData.features.join('; '));
     }
     if (scrapedData.description) {
-        setVal('style_preference', 'Product video in workshop/garage setting. Professional lighting.');
+        setVal('style_preference', {% if is_zh %}'真实车库或工作台场景，产品主体清晰，光线专业自然。'{% else %}'Product video in workshop/garage setting. Professional lighting.'{% endif %});
     }
     // Set YouTube fields
     if (scrapedData.title) {
-        setVal('youtube_title', scrapedData.title + ' - Product Demo & Review');
+        setVal('youtube_title', scrapedData.title + {% if is_zh %}' - 产品演示与讲解'{% else %}' - Product Demo & Review'{% endif %});
     }
     setVal('youtube_description', scrapedData.description || '');
     // Set reference images if available

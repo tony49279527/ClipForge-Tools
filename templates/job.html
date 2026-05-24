@@ -29,11 +29,11 @@
     <div class="grid three stats-grid">
         <div class="metric">
             <span>{% if is_zh %}状态{% else %}Status{% endif %}</span>
-            <strong id="job-status">{{ job["status"] }}</strong>
+            <strong id="job-status">{{ status_label(job["status"]) }}</strong>
         </div>
         <div class="metric">
             <span>{% if is_zh %}当前步骤{% else %}Current Step{% endif %}</span>
-            <strong id="job-step">{{ job["current_step"] or "-" }}</strong>
+            <strong id="job-step">{{ step_label(job["current_step"]) }}</strong>
         </div>
         <div class="metric">
             <span>{% if is_zh %}总 Tokens{% else %}Total Tokens{% endif %}</span>
@@ -52,7 +52,7 @@
             <strong id="job-final-path">{{ job["final_video_path"] or "-" }}</strong>
         </div>
         <div class="metric metric-wide">
-            <span>YouTube URL</span>
+            <span>{% if is_zh %}YouTube 链接{% else %}YouTube URL{% endif %}</span>
             <strong id="job-youtube-url">{% if job["youtube_url"] %}<a href="{{ job['youtube_url'] }}" target="_blank">{{ job["youtube_url"] }}</a>{% else %}-{% endif %}</strong>
         </div>
     </div>
@@ -79,7 +79,7 @@
     </div>
 
     {% if job["uploaded_images_note"] %}
-    <div class="note">{{ job["uploaded_images_note"] }}</div>
+    <div class="note">{{ step_label(job["uploaded_images_note"]) }}</div>
     {% endif %}
 
     <div class="note warning">
@@ -103,10 +103,10 @@
                 <tr>
                     <th>{% if is_zh %}片段{% else %}Clip{% endif %}</th>
                     <th>{% if is_zh %}状态{% else %}Status{% endif %}</th>
-                    <th>Seedance Task ID</th>
+                    <th>{% if is_zh %}Seedance 任务 ID{% else %}Seedance Task ID{% endif %}</th>
                     <th>{% if is_zh %}参考图{% else %}Reference Image{% endif %}</th>
                     <th>{% if is_zh %}本地路径{% else %}Local Path{% endif %}</th>
-                    <th>Tokens</th>
+                    <th>{% if is_zh %}Token 数{% else %}Tokens{% endif %}</th>
                     <th>{% if is_zh %}成本{% else %}Cost{% endif %}</th>
                 </tr>
             </thead>
@@ -114,7 +114,7 @@
                 {% for clip in clips %}
                 <tr>
                     <td>{{ clip["clip_index"] }}</td>
-                    <td>{{ clip["status"] }}</td>
+                    <td>{{ status_label(clip["status"]) }}</td>
                     <td>{{ clip["seedance_task_id"] or "-" }}</td>
                     <td>{{ clip["reference_image_url"] or "-" }}</td>
                     <td>{{ clip["local_path"] or "-" }}</td>
@@ -162,8 +162,8 @@
 
         document.getElementById("progress-fill").style.width = `${percent}%`;
         document.getElementById("progress-text").textContent = progressText;
-        document.getElementById("job-status").textContent = job.status;
-        document.getElementById("job-step").textContent = job.current_step || "-";
+        document.getElementById("job-status").textContent = job.status_label || job.status;
+        document.getElementById("job-step").textContent = job.step_label || job.current_step || "-";
         document.getElementById("job-tokens").textContent = job.total_tokens;
         document.getElementById("job-cost").textContent = job.estimated_cost_cny;
         document.getElementById("job-final-path").textContent = job.final_video_path || "-";
@@ -197,7 +197,7 @@
         tbody.innerHTML = clips.map(clip => `
             <tr>
                 <td>${clip.clip_index}</td>
-                <td>${clip.status}</td>
+                <td>${clip.status_label || clip.status}</td>
                 <td>${clip.seedance_task_id || "-"}</td>
                 <td>${clip.reference_image_url || "-"}</td>
                 <td>${clip.local_path || "-"}</td>
@@ -224,7 +224,7 @@
     }
 
     async function refreshStatus() {
-        const response = await fetch(`/jobs/${jobId}/status`);
+        const response = await fetch(`/jobs/${jobId}/status?lang={{ lang }}`);
         const data = await response.json();
         renderProgress(data.job, data.clips);
         updateVideoPreview(data.job);

@@ -26,8 +26,8 @@ SEEDANCE_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 SEEDANCE_MODEL = "doubao-seedance-2-0-pro"
 
 STYLE_PREFIX = (
-    "真实美国车库五金工具广告风格。场景为美国家庭车库、木质工作台、红色工具箱、墙面 pegboard、bench grinder、"
-    "RV trailer hitch、铝合金零件。只出现戴黑色工作手套的成年男性双手，不出现人脸。真实摄影质感、浅景深、"
+    "真实美国车库五金与电动工具广告风格。场景为美国家庭车库、木质工作台、红色工具箱、墙面 pegboard、木板、"
+    "螺丝、夹具与常见工具配件。只出现戴黑色工作手套的成年男性双手，不出现人脸。真实摄影质感、浅景深、"
     "自然车库光、稳定镜头、专业可信。不要文字、不要 logo、不要卡通、不要科幻、不要人脸、不要危险动作、不要夸张火花。"
 )
 
@@ -73,24 +73,24 @@ def build_clip_prompts(job) -> List[Dict[str, Optional[str]]]:
         ]
     elif clip_count == 20:
         beats = [
-            "Hook: dull metal to mirror shine",
+            "Hook: manual screwdriving is slow and tiring",
             "Product hero closeup",
-            "Package / wheel texture detail",
-            "Bench grinder setup",
-            "Safety preparation",
-            "Polishing compound application",
-            "First contact with metal",
-            "Aluminum part polishing",
-            "Brass part polishing",
-            "RV hitch ball polishing",
-            "Trailer bracket polishing",
+            "Battery pack and charger detail",
+            "Drill bit / driver bit change",
+            "Torque ring and speed selector",
+            "LED work light closeup",
+            "Pilot hole drilling in pine board",
+            "Fast drilling through soft wood",
+            "Driving a wood screw flush",
+            "Driving multiple screws in sequence",
+            "Overhead work / compact body control",
             "Before-after comparison",
             "Garage DIY lifestyle",
-            "Automotive restoration use case",
-            "RV maintenance use case",
+            "Furniture assembly use case",
+            "Home repair use case",
             "Material compatibility visual",
-            "Durability / thick cotton layers",
-            "Final shine montage",
+            "Battery endurance / portability highlight",
+            "Finished project montage",
             "Product on workbench hero shot",
             "CTA: check product link in description",
         ]

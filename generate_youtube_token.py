@@ -2,6 +2,8 @@ import json
 import os
 from google_auth_oauthlib.flow import InstalledAppFlow
 
+import env_bootstrap  # noqa: F401
+
 # YouTube Data API v3 upload scope
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 

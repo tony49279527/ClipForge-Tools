@@ -5,12 +5,15 @@ import subprocess
 import uuid
 from functools import lru_cache
 from pathlib import Path
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel, Field
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Header
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+
+import env_bootstrap  # noqa: F401
 
 from db import (
     create_clip_records,
@@ -89,16 +92,23 @@ def resolve_lang(request: Request) -> str:
 def build_common_context(request: Request) -> dict:
     ensure_runtime_dirs()
     lang = resolve_lang(request)
+    is_zh = lang == "zh"
     youtube_accounts = list_youtube_accounts()
     return {
         "request": request,
         "lang": lang,
-        "is_zh": lang == "zh",
+        "is_zh": is_zh,
         "lang_switch_en": str(request.url.include_query_params(lang="en")),
         "lang_switch_zh": str(request.url.include_query_params(lang="zh")),
         "app_version": get_app_version(),
         "youtube_accounts": youtube_accounts,
         "has_youtube_accounts": len(youtube_accounts) > 0,
+        "status_label": lambda value: status_label(value, is_zh),
+        "step_label": lambda value: current_step_label(value, is_zh),
+        "image_status_label": lambda value: image_status_label(value, is_zh),
+        "workflow_stage_label": lambda value: workflow_label(value, is_zh),
+        "video_mode_label": lambda value: value_label(value, "video_mode", is_zh),
+        "privacy_label": lambda value: value_label(value, "privacy", is_zh),
     }
 
 
@@ -117,6 +127,111 @@ def workflow_label(stage: str, is_zh: bool) -> str:
         "failed": ("失败", "Failed"),
     }
     zh, en = labels.get(stage, (stage or "-", stage or "-"))
+    return zh if is_zh else en
+
+
+def status_label(status: str, is_zh: bool) -> str:
+    labels = {
+        "queued": ("排队中", "Queued"),
+        "running": ("执行中", "Running"),
+        "generating_clips": ("生成片段中", "Generating Clips"),
+        "stitching": ("拼接中", "Stitching"),
+        "uploading": ("上传中", "Uploading"),
+        "succeeded": ("已完成", "Succeeded"),
+        "failed": ("失败", "Failed"),
+        "generating": ("生成中", "Generating"),
+        "ready": ("已就绪", "Ready"),
+        "approved": ("已确认", "Approved"),
+    }
+    zh, en = labels.get(status, (status or "-", status or "-"))
+    return zh if is_zh else en
+
+
+def image_status_label(status: str, is_zh: bool) -> str:
+    labels = {
+        "queued": ("待生成", "Queued"),
+        "generating": ("生成中", "Generating"),
+        "ready": ("已生成", "Ready"),
+        "failed": ("失败", "Failed"),
+    }
+    zh, en = labels.get(status, (status or "-", status or "-"))
+    return zh if is_zh else en
+
+
+def current_step_label(step: str, is_zh: bool) -> str:
+    step = step or "-"
+    if step.startswith("Generating ") and " storyboard clips in parallel" in step:
+        zh = step.replace("Generating ", "正在并行生成 ").replace(" storyboard clips in parallel", " 个分镜视频片段").replace(" workers", " 个并行线程")
+        return zh if is_zh else step
+    if step.startswith("Generating clip ") and " from storyboard" in step:
+        zh = step.replace("Generating clip ", "正在生成分镜片段 ").replace(" from storyboard", "")
+        return zh if is_zh else step
+    if step.startswith("Generating ") and " clips in parallel" in step:
+        zh = step.replace("Generating ", "正在并行生成 ").replace(" clips in parallel", " 个片段").replace(" workers", " 个并行线程")
+        return zh if is_zh else step
+    if step.startswith("Generating clip "):
+        zh = step.replace("Generating clip ", "正在生成片段 ")
+        en = step
+        return zh if is_zh else en
+    if step.startswith("Regenerating clip "):
+        zh = step.replace("Regenerating clip ", "正在重生成片段 ")
+        return zh if is_zh else step
+    if step.startswith("Clip ") and step.endswith(" regenerated"):
+        zh = step.replace("Clip ", "片段 ").replace(" regenerated", " 已重生成")
+        return zh if is_zh else step
+    labels = {
+        "queued": ("排队中", "Queued"),
+        "preparing prompts": ("正在准备提示词", "Preparing prompts"),
+        "Generating bilingual storyboard prompts": ("正在生成双语分镜提示词", "Generating bilingual storyboard prompts"),
+        "Storyboard prompts ready for review": ("分镜提示词已生成，等待审核", "Storyboard prompts ready for review"),
+        "Prompt generation failed": ("提示词生成失败", "Prompt generation failed"),
+        "Generating storyboard images": ("正在生成分镜图片", "Generating storyboard images"),
+        "Storyboard images ready for review": ("分镜图片已生成，等待审核", "Storyboard images ready for review"),
+        "Storyboard image generation failed": ("分镜图片生成失败", "Storyboard image generation failed"),
+        "Uploading to YouTube": ("正在上传到 YouTube", "Uploading to YouTube"),
+        "Published to YouTube": ("已发布到 YouTube", "Published to YouTube"),
+        "Publishing failed": ("发布失败", "Publishing failed"),
+        "Idea intake received": ("已接收创意输入", "Idea intake received"),
+        "Regenerating storyboard prompts": ("正在重新生成分镜提示词", "Regenerating storyboard prompts"),
+        "Storyboard prompts updated": ("分镜提示词已更新", "Storyboard prompts updated"),
+        "Regenerating storyboard image": ("正在重新生成分镜图片", "Regenerating storyboard image"),
+        "Storyboard review in progress": ("分镜审核进行中", "Storyboard review in progress"),
+        "All storyboard frames approved": ("全部分镜图片已确认", "All storyboard frames approved"),
+        "Queued for video generation": ("已加入视频生成队列", "Queued for video generation"),
+        "Storyboard version changed": ("分镜版本已切换", "Storyboard version changed"),
+        "Storyboard order updated": ("分镜顺序已更新", "Storyboard order updated"),
+        "Prompt review updated": ("提示词审核状态已更新", "Prompt review updated"),
+        "Video review updated": ("视频确认状态已更新", "Video review updated"),
+        "Publish confirmation updated": ("发布确认状态已更新", "Publish confirmation updated"),
+        "Concatenating clips": ("正在拼接视频片段", "Concatenating clips"),
+        "Preparing approved storyboard frames": ("正在整理已确认的分镜图片", "Preparing approved storyboard frames"),
+        "Video generation completed": ("视频生成已完成", "Video generation completed"),
+        "Completed": ("已完成", "Completed"),
+        "Failed": ("失败", "Failed"),
+        "Rebuilding final video": ("正在重新生成最终视频", "Rebuilding final video"),
+        "Local reference images were saved, but Seedance needs public image URLs. Configure object storage before uploaded files can be used as reference_image.": (
+            "本地参考图已保存，但 Seedance 需要公网图片 URL。接入对象存储后，上传图片才能真正作为参考图使用。",
+            "Local reference images were saved, but Seedance needs public image URLs. Configure object storage before uploaded files can be used as reference_image.",
+        ),
+    }
+    zh, en = labels.get(step, (step or "-", step or "-"))
+    return zh if is_zh else en
+
+
+def value_label(value: str, kind: str, is_zh: bool) -> str:
+    mapping = {
+        "video_mode": {
+            "shorts": ("短视频", "Shorts"),
+            "long_video": ("长视频", "Long Video"),
+        },
+        "privacy": {
+            "private": ("私密", "Private"),
+            "unlisted": ("不公开列出", "Unlisted"),
+            "public": ("公开", "Public"),
+        },
+    }
+    labels = mapping.get(kind, {})
+    zh, en = labels.get(value, (value or "-", value or "-"))
     return zh if is_zh else en
 
 
@@ -457,9 +572,9 @@ def index(request: Request):
             },
             "sample_job": sample_job,
             "youtube_notice": (
-                "Due to YouTube Data API restrictions, videos uploaded via videos.insert from projects "
-                "created after July 28, 2020 and not yet audited may be forced to Private even if you select "
-                "unlisted or public."
+                "受 YouTube Data API 限制影响，2020 年 7 月 28 日后创建且未经审核的 API 项目，即使选择“不公开列出”或“公开”，最终也可能被强制设为“私密”。"
+                if context["is_zh"]
+                else "Due to YouTube Data API restrictions, videos uploaded via videos.insert from projects created after July 28, 2020 and not yet audited may be forced to Private even if you select unlisted or public."
             ),
         }
     )
@@ -558,11 +673,14 @@ def job_detail(request: Request, job_id: int):
 
 
 @app.get("/jobs/{job_id}/status")
-def job_status(job_id: int):
+def job_status(request: Request, job_id: int):
     job = get_job_by_id(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    clips = get_clip_rows_by_job_id(job_id)
+    is_zh = resolve_lang(request) == "zh"
+    clips = [dict(row) for row in get_clip_rows_by_job_id(job_id)]
+    for clip in clips:
+        clip["status_label"] = status_label(clip.get("status"), is_zh)
     queue = None
     try:
         from task_queue import get_job_status as get_rq_job_status
@@ -570,7 +688,11 @@ def job_status(job_id: int):
         queue = get_rq_job_status(job_id)
     except Exception as exc:
         queue = {"status": "unavailable", "error": str(exc)}
-    return {"job": dict(job), "clips": [dict(row) for row in clips], "queue": queue}
+    payload = dict(job)
+    payload["status_label"] = status_label(job.get("status"), is_zh)
+    payload["step_label"] = current_step_label(job.get("current_step"), is_zh)
+    payload["uploaded_images_note_label"] = current_step_label(job.get("uploaded_images_note"), is_zh)
+    return {"job": payload, "clips": clips, "queue": queue}
 
 
 @app.get("/jobs/{job_id}/video")
@@ -740,12 +862,17 @@ def v2_job_detail(request: Request, job_id: int):
 
 
 @app.get("/v2/jobs/{job_id}/status")
-def v2_job_status(job_id: int):
+def v2_job_status(request: Request, job_id: int):
     job = get_job_by_id(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    lang_is_zh = resolve_lang(request) == "zh"
     frames = [dict(frame) for frame in get_storyboard_frames(job_id)]
+    for frame in frames:
+        frame["image_status_label"] = image_status_label(frame.get("image_status"), lang_is_zh)
     clips = [dict(row) for row in get_clip_rows_by_job_id(job_id)]
+    for clip in clips:
+        clip["status_label"] = status_label(clip.get("status"), lang_is_zh)
     usage_events = [dict(row) for row in list_usage_events(job_id)]
     queue = None
     try:
@@ -754,9 +881,12 @@ def v2_job_status(job_id: int):
         queue = get_rq_job_status(job_id)
     except Exception as exc:
         queue = {"status": "unavailable", "error": str(exc)}
+    payload = dict(job)
+    payload["status_label"] = status_label(job.get("status"), lang_is_zh)
+    payload["step_label"] = current_step_label(job.get("current_step"), lang_is_zh)
     return {
-        "job": dict(job),
-        "stage_label": workflow_label(job["workflow_stage"], (job["language"] or "zh") == "zh"),
+        "job": payload,
+        "stage_label": workflow_label(job["workflow_stage"], lang_is_zh),
         "frames": frames,
         "clips": clips,
         "usage_events": usage_events,
@@ -1164,6 +1294,95 @@ async def api_create_template(request: Request):
 def api_delete_template(template_id: int):
     delete_template(template_id)
     return {"ok": True}
+
+
+class ExternalJobPayload(BaseModel):
+    project_name: str
+    product_name: str
+    product_brief: str
+    amazon_url: Optional[str] = ""
+    video_mode: Optional[str] = "shorts"
+    ratio: Optional[str] = "9:16"
+    clip_duration: Optional[int] = 5
+    clip_count: Optional[int] = 2
+    resolution: Optional[str] = "720p"
+    youtube_title: Optional[str] = None
+    youtube_description: Optional[str] = ""
+    youtube_account_id: Optional[str] = ""
+    privacy: Optional[str] = "private"
+    upload_to_youtube: Optional[bool] = True
+    stitch_final_video: Optional[bool] = True
+    reference_image_urls: Optional[List[str]] = Field(default_factory=list)
+
+
+@app.post("/api/external/jobs")
+async def api_create_external_job(
+    payload: ExternalJobPayload,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+):
+    """Secure JSON endpoint for external systems (e.g. Lobster, Hermes, OpenClaw) to enqueue jobs."""
+    # API key check
+    configured_api_key = os.getenv("CLIPFORGE_API_KEY", "lobster_secret_key")
+    if configured_api_key and x_api_key != configured_api_key:
+        raise HTTPException(status_code=401, detail="Unauthorized client: Invalid API Key")
+
+    youtube_account_id = (payload.youtube_account_id or "").strip()
+    if payload.upload_to_youtube and not youtube_account_id:
+        # Fallback to the first available active account
+        accounts = list_youtube_accounts()
+        if accounts:
+            youtube_account_id = accounts[0]["account_id"]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="YouTube upload is enabled, but no YouTube accounts are configured on this server."
+            )
+
+    # Use defaults for missing title
+    youtube_title = (payload.youtube_title or "").strip()
+    if not youtube_title:
+        youtube_title = f"{payload.product_name} Video Guide"
+
+    job_payload = {
+        "project_name": payload.project_name.strip(),
+        "product_name": payload.product_name.strip(),
+        "amazon_url": (payload.amazon_url or "").strip(),
+        "product_brief": payload.product_brief.strip(),
+        "video_mode": payload.video_mode,
+        "ratio": payload.ratio,
+        "clip_duration": payload.clip_duration,
+        "clip_count": payload.clip_count,
+        "resolution": payload.resolution,
+        "youtube_title": youtube_title,
+        "youtube_account_id": youtube_account_id,
+        "youtube_description": (payload.youtube_description or "").strip(),
+        "privacy": payload.privacy,
+        "upload_to_youtube": 1 if payload.upload_to_youtube else 0,
+        "stitch_final_video": 1 if payload.stitch_final_video else 0,
+        "reference_image_urls_json": json.dumps(payload.reference_image_urls or [], ensure_ascii=False),
+        "status": "queued",
+        "current_step": "queued",
+        "uploaded_images_note": "",
+    }
+
+    job_id = create_job(job_payload)
+    create_clip_records(job_id=job_id, clip_count=payload.clip_count)
+
+    # Enqueue via RQ task queue or local thread fallback
+    from task_queue import enqueue_video_job
+    enqueue_video_job(job_id)
+
+    return {
+        "status": "success",
+        "job_id": job_id,
+        "message": "Job successfully queued.",
+        "details": {
+            "project_name": payload.project_name,
+            "product_name": payload.product_name,
+            "youtube_account_id": youtube_account_id,
+        }
+    }
+
 
 
 if __name__ == "__main__":

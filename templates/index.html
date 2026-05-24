@@ -57,10 +57,10 @@
             </div>
             <div class="grid two">
                 <label>{% if is_zh %}项目名称{% else %}Project Name{% endif %}
-                    <input type="text" name="project_name" required value="{{ sample_job.project_name }}" placeholder="{% if is_zh %}四月车库投放计划{% else %}April Garage Campaign{% endif %}">
+                    <input type="text" name="project_name" required value="{{ sample_job.project_name }}" placeholder="{% if is_zh %}电钻新品投放计划{% else %}Cordless Drill Launch Campaign{% endif %}">
                 </label>
                 <label>{% if is_zh %}产品名称{% else %}Product Name{% endif %}
-                    <input type="text" name="product_name" required value="{{ sample_job.product_name }}" placeholder="{% if is_zh %}台式抛光轮套装{% else %}Bench Polishing Wheel Kit{% endif %}">
+                    <input type="text" name="product_name" required value="{{ sample_job.product_name }}" placeholder="{% if is_zh %}20V 无绳电钻套装{% else %}20V Cordless Drill Driver Kit{% endif %}">
                 </label>
             </div>
 
@@ -81,8 +81,8 @@
             <div class="grid three">
                 <label>{% if is_zh %}视频类型{% else %}Video Mode{% endif %}
                     <select name="video_mode">
-                        <option value="shorts" {% if defaults.video_mode == "shorts" %}selected{% endif %}>shorts</option>
-                        <option value="long_video" {% if defaults.video_mode == "long_video" %}selected{% endif %}>long_video</option>
+                        <option value="shorts" {% if defaults.video_mode == "shorts" %}selected{% endif %}>{{ video_mode_label("shorts") }}</option>
+                        <option value="long_video" {% if defaults.video_mode == "long_video" %}selected{% endif %}>{{ video_mode_label("long_video") }}</option>
                     </select>
                 </label>
                 <label>{% if is_zh %}画面比例{% else %}Ratio{% endif %}
@@ -117,9 +117,9 @@
                 </label>
                 <label>{% if is_zh %}YouTube 可见性{% else %}Privacy{% endif %}
                     <select name="privacy">
-                        <option value="private" {% if defaults.privacy == "private" %}selected{% endif %}>private</option>
-                        <option value="unlisted" {% if defaults.privacy == "unlisted" %}selected{% endif %}>unlisted</option>
-                        <option value="public" {% if defaults.privacy == "public" %}selected{% endif %}>public</option>
+                        <option value="private" {% if defaults.privacy == "private" %}selected{% endif %}>{{ privacy_label("private") }}</option>
+                        <option value="unlisted" {% if defaults.privacy == "unlisted" %}selected{% endif %}>{{ privacy_label("unlisted") }}</option>
+                        <option value="public" {% if defaults.privacy == "public" %}selected{% endif %}>{{ privacy_label("public") }}</option>
                     </select>
                 </label>
             </div>
@@ -132,7 +132,7 @@
             </div>
             <div class="grid two">
                 <label>{% if is_zh %}YouTube 标题{% else %}YouTube Title{% endif %}
-                    <input type="text" name="youtube_title" required value="{{ sample_job.youtube_title }}" placeholder="{% if is_zh %}几分钟恢复金属光泽{% else %}Restore metal shine in minutes{% endif %}">
+                    <input type="text" name="youtube_title" required value="{{ sample_job.youtube_title }}" placeholder="{% if is_zh %}4 步展示电钻打孔与拧螺丝效果{% else %}Show drill and drive results in 4 steps{% endif %}">
                 </label>
                 <label>{% if is_zh %}上传账号{% else %}Upload Account{% endif %}
                     <select name="youtube_account_id">
@@ -229,13 +229,13 @@
     if (loadSampleButton) {
         loadSampleButton.addEventListener("click", () => {
             const fields = {
-                project_name: "RV Hitch Shine Full Workflow",
-                product_name: "Cotton Polishing Wheel Kit",
-                amazon_url: "https://www.amazon.com/dp/B0TEST12345",
-                product_brief: "6-inch cotton polishing wheel kit for bench grinder use. Designed for aluminum, brass, stainless steel, trailer hitch balls, and oxidized hardware. Show a full garage workflow from dull metal to reflective finish for Amazon buyers in garage DIY, automotive restoration, and RV maintenance.",
-                youtube_title: "From Dull to Mirror Shine: 4-Step RV Hitch Polish Demo",
-                youtube_description: "See a complete 4-step garage polishing workflow using a cotton polishing wheel kit. This demo covers hook, product closeup, setup, and final RV hitch shine result. Product link in description.",
-                reference_image_urls: "https://images.unsplash.com/photo-1503376780353-7e6692767b70\nhttps://images.unsplash.com/photo-1517524206127-48bbd363f3d7\nhttps://images.unsplash.com/photo-1486006920555-c77dcf18193c\nhttps://images.unsplash.com/photo-1486262715619-67b85e0b08d3",
+                project_name: "Cordless Drill Demo Workflow",
+                product_name: "20V Cordless Power Drill Driver Kit",
+                amazon_url: "https://www.amazon.com/dp/B0DRILL2024",
+                product_brief: "20V cordless drill driver kit with 2 batteries, variable speed trigger, LED work light, 3/8-inch keyless chuck, and compact ergonomic grip. Show a clean garage workflow drilling pilot holes in a pine board, driving wood screws smoothly, and highlighting control, torque, and portability for DIY homeowners and Amazon power tool shoppers.",
+                youtube_title: "Cordless Drill Demo: Drill, Drive, and Finish in 4 Steps",
+                youtube_description: "Watch a 4-step cordless drill demo covering the hook, product closeup, bit change, drilling, and screw driving result. Built for DIY homeowners, garage workshops, and Amazon power tool buyers.",
+                reference_image_urls: "https://source.unsplash.com/1600x900/?cordless-drill\nhttps://source.unsplash.com/1600x900/?power-drill,workbench\nhttps://source.unsplash.com/1600x900/?drill-driver,woodworking\nhttps://source.unsplash.com/1600x900/?garage,drill,tool",
             };
 
             Object.entries(fields).forEach(([name, value]) => {

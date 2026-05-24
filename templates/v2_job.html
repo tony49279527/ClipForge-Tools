@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}2.0 Job #{{ job["id"] }}{% endblock %}
+{% block title %}{% if is_zh %}2.0 任务 #{{ job["id"] }}{% else %}2.0 Job #{{ job["id"] }}{% endif %}{% endblock %}
 
 {% block content %}
 {% set stage = job["workflow_stage"] or "idea_submitted" %}
@@ -32,7 +32,7 @@
         <h1>#{{ job["id"] }} · {{ job["idea_title"] or job["project_name"] }}</h1>
         <p class="hero-text">
             {{ job["product_name"] }} · {{ stage_label }}
-            {% if job["current_step"] %}<br><span class="muted-inline">{{ job["current_step"] }}</span>{% endif %}
+            {% if job["current_step"] %}<br><span class="muted-inline">{{ step_label(job["current_step"]) }}</span>{% endif %}
         </p>
     </div>
     <aside class="hero-aside">
@@ -40,7 +40,7 @@
             <h3>{% if is_zh %}当前方法{% else %}Current Method{% endif %}</h3>
             <p class="hint compact">
                 {% if is_zh %}
-                先把想法拆成双语分镜提示词，再生成分镜图，确认后才进入 Seedance 视频阶段。每一步都能看到 tokens 和预估费用。
+                先把想法拆成双语分镜提示词，再生成分镜图，确认后才进入 Seedance 视频阶段。每一步都能看到 Token 数和预估费用。
                 {% else %}
                 Break the idea into bilingual storyboard prompts, generate storyboard images, approve them, and only then spend on Seedance video generation.
                 {% endif %}
@@ -106,9 +106,9 @@
                 <strong id="total-cost">¥{{ job["estimated_cost_cny"] }}</strong>
             </div>
             <div class="rail-submetrics">
-                <div><span>Prompt</span><strong id="prompt-cost">¥{{ job["prompt_estimated_cost_cny"] }}</strong></div>
-                <div><span>Images</span><strong id="image-cost">¥{{ job["image_estimated_cost_cny"] }}</strong></div>
-                <div><span>Videos</span><strong id="video-cost">¥{{ job["video_estimated_cost_cny"] }}</strong></div>
+                <div><span>{% if is_zh %}提示词{% else %}Prompt{% endif %}</span><strong id="prompt-cost">¥{{ job["prompt_estimated_cost_cny"] }}</strong></div>
+                <div><span>{% if is_zh %}分镜图{% else %}Images{% endif %}</span><strong id="image-cost">¥{{ job["image_estimated_cost_cny"] }}</strong></div>
+                <div><span>{% if is_zh %}视频{% else %}Videos{% endif %}</span><strong id="video-cost">¥{{ job["video_estimated_cost_cny"] }}</strong></div>
             </div>
         </div>
     </aside>
@@ -134,7 +134,7 @@
                 </div>
                 <div class="idea-card-mini">
                     <span>{% if is_zh %}节奏配置{% else %}Cadence{% endif %}</span>
-                    <strong>{{ job["clip_count"] }} clips · {{ job["clip_duration"] }}s · {{ job["ratio"] }}</strong>
+                    <strong>{{ job["clip_count"] }} {% if is_zh %}段 · 每段{% else %}clips ·{% endif %} {{ job["clip_duration"] }}s · {{ job["ratio"] }}</strong>
                 </div>
             </div>
 
@@ -174,7 +174,7 @@
             {% if frames %}
             <div class="review-gate prompt-review">
                 <div class="review-gate-copy">
-                    <span class="eyebrow">{% if is_zh %}Prompt 审核{% else %}Prompt Review{% endif %}</span>
+                    <span class="eyebrow">{% if is_zh %}提示词审核{% else %}Prompt Review{% endif %}</span>
                     <h3>{% if is_zh %}先确认分镜提示词，再允许生成图片{% else %}Approve prompt cards before image generation unlocks{% endif %}</h3>
                     <p class="hint compact">
                         {% if is_zh %}
@@ -186,7 +186,7 @@
                 </div>
                 <form action="/v2/jobs/{{ job['id'] }}/confirm-prompts?lang={{ lang }}" method="post">
                     <button id="prompt-review-button" class="btn {% if prompt_reviewed %}ghost{% else %}primary{% endif %}" type="submit">
-                        {% if prompt_reviewed %}{% if is_zh %}取消 Prompt 确认{% else %}Undo Prompt Approval{% endif %}{% else %}{% if is_zh %}确认 Prompt 可以进图片阶段{% else %}Approve Prompt Set{% endif %}{% endif %}
+                        {% if prompt_reviewed %}{% if is_zh %}取消提示词确认{% else %}Undo Prompt Approval{% endif %}{% else %}{% if is_zh %}确认提示词，进入图片阶段{% else %}Approve Prompt Set{% endif %}{% endif %}
                     </button>
                 </form>
             </div>
@@ -202,20 +202,20 @@
                         </div>
                         <div class="pill-row">
                             <span class="status {% if frame['prompt_en'] and frame['prompt_zh'] %}succeeded{% else %}queued{% endif %}">
-                                {% if is_zh %}Prompt Ready{% else %}Prompt Ready{% endif %}
+                                {% if is_zh %}提示词已就绪{% else %}Prompt Ready{% endif %}
                             </span>
                             <span class="status {% if prompt_reviewed %}succeeded{% else %}queued{% endif %}">
-                                {% if prompt_reviewed %}{% if is_zh %}已纳入当前 prompt 方案{% else %}Included in approved prompt set{% endif %}{% else %}{% if is_zh %}待整组 Prompt 审核{% else %}Awaiting prompt-set approval{% endif %}{% endif %}
+                                {% if prompt_reviewed %}{% if is_zh %}已纳入当前提示词方案{% else %}Included in approved prompt set{% endif %}{% else %}{% if is_zh %}等待整组提示词审核{% else %}Awaiting prompt-set approval{% endif %}{% endif %}
                             </span>
                         </div>
                     </div>
 
                     <form action="/v2/frames/{{ frame['id'] }}/update-prompts?lang={{ lang }}" method="post" class="frame-form">
                         <div class="grid two">
-                            <label>Prompt ZH
+                            <label>{% if is_zh %}中文提示词{% else %}Prompt ZH{% endif %}
                                 <textarea name="prompt_zh" rows="6">{{ frame["prompt_zh"] or "" }}</textarea>
                             </label>
-                            <label>Prompt EN
+                            <label>{% if is_zh %}英文提示词{% else %}Prompt EN{% endif %}
                                 <textarea name="prompt_en" rows="6">{{ frame["prompt_en"] or "" }}</textarea>
                             </label>
                         </div>
@@ -282,7 +282,7 @@
                             <h3>{{ frame["scene_role"] or ("scene_" ~ frame["clip_index"]) }}</h3>
                         </div>
                         <div class="pill-row">
-                            <span class="status {{ frame['image_status'] }}">{{ frame["image_status"] }}</span>
+                            <span class="status {{ frame['image_status'] }}">{{ image_status_label(frame["image_status"]) }}</span>
                             <span class="status {% if frame['user_approved'] %}succeeded{% else %}queued{% endif %}">
                                 {% if frame["user_approved"] %}{% if is_zh %}已确认{% else %}Approved{% endif %}{% else %}{% if is_zh %}待确认{% else %}Pending{% endif %}{% endif %}
                             </span>
@@ -301,7 +301,7 @@
                         </div>
                         <div class="storyboard-meta">
                             <div class="storyboard-stat-grid">
-                                <div><span>Tokens</span><strong>{{ frame["image_tokens"] }}</strong></div>
+                                <div><span>{% if is_zh %}Token 数{% else %}Tokens{% endif %}</span><strong>{{ frame["image_tokens"] }}</strong></div>
                                 <div><span>{% if is_zh %}成本{% else %}Cost{% endif %}</span><strong>¥{{ frame["image_estimated_cost_cny"] }}</strong></div>
                                 <div><span>{% if is_zh %}版本数{% else %}Versions{% endif %}</span><strong>{{ frame["versions"]|length }}</strong></div>
                             </div>
@@ -313,7 +313,7 @@
                                     {% for v in frame["versions"] %}
                                     <form action="/v2/jobs/{{ job['id'] }}/frames/{{ frame['id'] }}/set-version/{{ v['id'] }}?lang={{ lang }}" method="post" style="display:inline;">
                                         <button class="btn tiny {% if v['is_current'] %}primary{% else %}ghost{% endif %}" type="submit">
-                                            v{{ v['version_no'] }}{% if v['is_current'] %} · current{% endif %}
+                                            v{{ v['version_no'] }}{% if v['is_current'] %}{% if is_zh %} · 当前版本{% else %} · current{% endif %}{% endif %}
                                         </button>
                                     </form>
                                     {% endfor %}
@@ -414,7 +414,7 @@
                             <span class="eyebrow">{% if is_zh %}视频卡片{% else %}Video Card{% endif %} {{ clip["clip_index"] }}</span>
                             <h3>{% if is_zh %}片段 {{ clip["clip_index"] }}{% else %}Clip {{ clip["clip_index"] }}{% endif %}</h3>
                         </div>
-                        <span class="status {{ clip['status'] }}">{{ clip["status"] }}</span>
+                        <span class="status {{ clip['status'] }}">{{ status_label(clip["status"]) }}</span>
                     </div>
                     <div class="clip-card-body">
                         {% if clip["status"] == "succeeded" and clip["local_path"] %}
@@ -423,10 +423,10 @@
                         </div>
                         {% endif %}
                         <div class="clip-card-stats">
-                            <div><span>Tokens</span><strong>{{ clip["tokens"] }}</strong></div>
+                            <div><span>{% if is_zh %}Token 数{% else %}Tokens{% endif %}</span><strong>{{ clip["tokens"] }}</strong></div>
                             <div><span>{% if is_zh %}成本{% else %}Cost{% endif %}</span><strong>¥{{ clip["estimated_cost_cny"] }}</strong></div>
                         </div>
-                        <p><strong>Seedance Task:</strong> {{ clip["seedance_task_id"] or "-" }}</p>
+                        <p><strong>{% if is_zh %}Seedance 任务{% else %}Seedance Task{% endif %}:</strong> {{ clip["seedance_task_id"] or "-" }}</p>
                         <p><strong>{% if is_zh %}本地路径{% else %}Local Path{% endif %}:</strong> {{ clip["local_path"] or "-" }}</p>
                         {% if clip["error_message"] %}
                         <div class="note error">{{ clip["error_message"] }}</div>
@@ -472,7 +472,7 @@
 
             <div class="publish-grid">
                 <div class="idea-card-mini">
-                    <span>YouTube Title</span>
+                    <span>{% if is_zh %}YouTube 标题{% else %}YouTube Title{% endif %}</span>
                     <strong>{{ job["youtube_title"] or "-" }}</strong>
                 </div>
                 <div class="idea-card-mini">
@@ -480,8 +480,8 @@
                     <strong>{{ job["youtube_account_id"] or "-" }}</strong>
                 </div>
                 <div class="idea-card-mini">
-                    <span>Privacy</span>
-                    <strong>{{ job["privacy"] or "-" }}</strong>
+                    <span>{% if is_zh %}可见性{% else %}Privacy{% endif %}</span>
+                    <strong>{{ privacy_label(job["privacy"]) }}</strong>
                 </div>
             </div>
 
@@ -550,28 +550,28 @@
             </div>
             <div class="usage-stage-summary">
                 <div class="idea-card-mini">
-                    <span>Prompt</span>
-                    <strong>{{ job["prompt_total_tokens"] }} tokens · ¥{{ job["prompt_estimated_cost_cny"] }}</strong>
+                    <span>{% if is_zh %}提示词{% else %}Prompt{% endif %}</span>
+                    <strong>{{ job["prompt_total_tokens"] }} {% if is_zh %}Token ·{% else %}tokens ·{% endif %} ¥{{ job["prompt_estimated_cost_cny"] }}</strong>
                 </div>
                 <div class="idea-card-mini">
-                    <span>Images</span>
-                    <strong>{{ job["image_total_tokens"] }} tokens · ¥{{ job["image_estimated_cost_cny"] }}</strong>
+                    <span>{% if is_zh %}分镜图{% else %}Images{% endif %}</span>
+                    <strong>{{ job["image_total_tokens"] }} {% if is_zh %}Token ·{% else %}tokens ·{% endif %} ¥{{ job["image_estimated_cost_cny"] }}</strong>
                 </div>
                 <div class="idea-card-mini">
-                    <span>Videos</span>
-                    <strong>{{ job["video_total_tokens"] }} tokens · ¥{{ job["video_estimated_cost_cny"] }}</strong>
+                    <span>{% if is_zh %}视频{% else %}Videos{% endif %}</span>
+                    <strong>{{ job["video_total_tokens"] }} {% if is_zh %}Token ·{% else %}tokens ·{% endif %} ¥{{ job["video_estimated_cost_cny"] }}</strong>
                 </div>
             </div>
             <div class="table-wrap">
                 <table>
                     <thead>
                         <tr>
-                            <th>Stage</th>
-                            <th>Action</th>
-                            <th>Model</th>
-                            <th>Tokens</th>
-                            <th>Cost</th>
-                            <th>Time</th>
+                            <th>{% if is_zh %}阶段{% else %}Stage{% endif %}</th>
+                            <th>{% if is_zh %}动作{% else %}Action{% endif %}</th>
+                            <th>{% if is_zh %}模型{% else %}Model{% endif %}</th>
+                            <th>{% if is_zh %}Token 数{% else %}Tokens{% endif %}</th>
+                            <th>{% if is_zh %}成本{% else %}Cost{% endif %}</th>
+                            <th>{% if is_zh %}时间{% else %}Time{% endif %}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -658,8 +658,8 @@ function updateV2Gates(job, frames, clips, isZh) {
         promptReviewButton.classList.toggle("ghost", promptReviewed);
         promptReviewButton.classList.toggle("primary", !promptReviewed);
         promptReviewButton.textContent = promptReviewed
-            ? (isZh ? "取消 Prompt 确认" : "Undo Prompt Approval")
-            : (isZh ? "确认 Prompt 可以进图片阶段" : "Approve Prompt Set");
+            ? (isZh ? "取消提示词确认" : "Undo Prompt Approval")
+            : (isZh ? "确认提示词，进入图片阶段" : "Approve Prompt Set");
     }
 
     const promptWarning = document.getElementById("prompt-review-warning");
@@ -667,7 +667,7 @@ function updateV2Gates(job, frames, clips, isZh) {
         promptWarning.style.display = promptReviewed ? "none" : "block";
         if (!promptReviewed) {
             promptWarning.textContent = isZh
-                ? "还没有确认整组分镜提示词。请先回到上一步确认 prompt，再进入图片生成阶段。"
+                ? "还没有确认整组分镜提示词。请先回到上一步确认提示词，再进入图片生成阶段。"
                 : "The prompt set has not been approved yet. Confirm the prompts first before entering the image stage.";
         }
     }
@@ -736,7 +736,7 @@ function renderClipCards(clips, isZh) {
                     <span class="eyebrow">${isZh ? "视频卡片" : "Video Card"} ${clip.clip_index}</span>
                     <h3>${isZh ? `片段 ${clip.clip_index}` : `Clip ${clip.clip_index}`}</h3>
                 </div>
-                <span class="status ${clip.status}">${clip.status}</span>
+                <span class="status ${clip.status}">${clip.status_label || clip.status}</span>
             </div>
             <div class="clip-card-body">
                 ${clip.status === "succeeded" && clip.local_path ? `
@@ -744,10 +744,10 @@ function renderClipCards(clips, isZh) {
                     <video controls preload="metadata" src="/v2/jobs/${v2JobId}/clips/${clip.clip_index}/video"></video>
                 </div>` : ""}
                 <div class="clip-card-stats">
-                    <div><span>Tokens</span><strong>${clip.tokens || 0}</strong></div>
+                    <div><span>${isZh ? "Token 数" : "Tokens"}</span><strong>${clip.tokens || 0}</strong></div>
                     <div><span>${isZh ? "成本" : "Cost"}</span><strong>¥${clip.estimated_cost_cny || 0}</strong></div>
                 </div>
-                <p><strong>Seedance Task:</strong> ${clip.seedance_task_id || "-"}</p>
+                <p><strong>${isZh ? "Seedance 任务" : "Seedance Task"}:</strong> ${clip.seedance_task_id || "-"}</p>
                 <p><strong>${isZh ? "本地路径" : "Local Path"}:</strong> ${clip.local_path || "-"}</p>
                 ${clip.error_message ? `<div class="note error">${clip.error_message}</div>` : ""}
             </div>
@@ -761,7 +761,7 @@ function renderClipCards(clips, isZh) {
 }
 
 async function refreshV2Status() {
-    const response = await fetch(`/v2/jobs/${v2JobId}/status`);
+    const response = await fetch(`/v2/jobs/${v2JobId}/status?lang={{ lang }}`);
     const data = await response.json();
     const isZh = {{ "true" if is_zh else "false" }};
     document.getElementById("workflow-stage").textContent = data.stage_label || data.job.workflow_stage || "-";

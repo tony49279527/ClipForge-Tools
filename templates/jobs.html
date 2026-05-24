@@ -29,7 +29,7 @@
                     <th>{% if is_zh %}状态{% else %}Status{% endif %}</th>
                     <th>{% if is_zh %}当前步骤{% else %}Step{% endif %}</th>
                     <th>{% if is_zh %}更新时间{% else %}Updated{% endif %}</th>
-                    <th>YouTube</th>
+                    <th>{% if is_zh %}YouTube 链接{% else %}YouTube{% endif %}</th>
                 </tr>
             </thead>
             <tbody>
@@ -38,8 +38,8 @@
                     <td><a href="/jobs/{{ job['id'] }}?lang={{ lang }}">#{{ job["id"] }}</a></td>
                     <td>{{ job["project_name"] }}</td>
                     <td>{{ job["product_name"] }}</td>
-                    <td><span class="status {{ job['status'] }}">{{ job["status"] }}</span></td>
-                    <td>{{ job["current_step"] or "-" }}</td>
+                    <td><span class="status {{ job['status'] }}">{{ status_label(job["status"]) }}</span></td>
+                    <td>{{ step_label(job["current_step"]) }}</td>
                     <td>{{ job["updated_at"] }}</td>
                     <td>
                         {% if job["youtube_url"] %}
@@ -51,7 +51,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="6">{% if is_zh %}还没有任务。可以先从“新建任务”页面创建第一条视频生成任务。{% else %}No jobs yet. Create the first product video run from the New Job page.{% endif %}</td>
+                    <td colspan="7">{% if is_zh %}还没有任务。可以先从“新建任务”页面创建第一条视频生成任务。{% else %}No jobs yet. Create the first product video run from the New Job page.{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>

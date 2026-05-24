@@ -12,6 +12,8 @@ import sys
 import argparse
 import multiprocessing as mp
 
+import env_bootstrap  # noqa: F401
+
 from rq import Worker
 from task_queue import get_redis, QUEUE_NAME
 

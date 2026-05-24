@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+import env_bootstrap  # noqa: F401
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build

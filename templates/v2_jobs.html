@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}ClipForge Tools 2.0 Jobs{% endblock %}
+{% block title %}{% if is_zh %}ClipForge Tools 2.0 任务{% else %}ClipForge Tools 2.0 Jobs{% endif %}{% endblock %}
 
 {% block content %}
 <section class="hero hero-compact">
     <div class="hero-copy">
-        <span class="eyebrow">2.0 Jobs</span>
+        <span class="eyebrow">{% if is_zh %}2.0 任务{% else %}2.0 Jobs{% endif %}</span>
         <h1>{% if is_zh %}Storyboard-first 任务列表{% else %}Storyboard-first workflow runs{% endif %}</h1>
     </div>
 </section>
@@ -26,7 +26,7 @@
                     <th>{% if is_zh %}创意{% else %}Idea{% endif %}</th>
                     <th>{% if is_zh %}产品{% else %}Product{% endif %}</th>
                     <th>{% if is_zh %}阶段{% else %}Stage{% endif %}</th>
-                    <th>Tokens</th>
+                    <th>{% if is_zh %}Token 数{% else %}Tokens{% endif %}</th>
                     <th>{% if is_zh %}总成本{% else %}Cost{% endif %}</th>
                     <th>{% if is_zh %}更新时间{% else %}Updated{% endif %}</th>
                 </tr>
@@ -37,7 +37,7 @@
                     <td><a href="/v2/jobs/{{ job['id'] }}?lang={{ lang }}">#{{ job["id"] }}</a></td>
                     <td>{{ job["idea_title"] or job["project_name"] }}</td>
                     <td>{{ job["product_name"] }}</td>
-                    <td>{{ job["workflow_stage"] or "-" }}</td>
+                    <td>{{ workflow_stage_label(job["workflow_stage"]) }}</td>
                     <td>{{ job["total_tokens"] }}</td>
                     <td>{{ job["estimated_cost_cny"] }}</td>
                     <td>{{ job["updated_at"] }}</td>

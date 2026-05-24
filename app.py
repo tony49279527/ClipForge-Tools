@@ -1421,11 +1421,12 @@ def republish_worker(job_id: int):
         final_video_path = Path(job["final_video_path"])
         
         youtube_url = upload_youtube(
-            file_path=final_video_path,
+            video_path=final_video_path,
             title=job["youtube_title"],
             description=job["youtube_description"] or "",
-            privacy_status=job["privacy"],
-            youtube_account_id=job["youtube_account_id"]
+            tags=[],
+            privacy=job["privacy"],
+            account_id=job["youtube_account_id"]
         )
 
         update_job_fields(job_id, {
@@ -1449,6 +1450,8 @@ def republish_worker(job_id: int):
             pass
 
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
         logger.exception("Republish worker failed for job %s", job_id)
         update_job_fields(job_id, {
             "status": "failed",

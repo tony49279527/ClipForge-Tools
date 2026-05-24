@@ -96,6 +96,13 @@
     <div class="note error hidden" id="job-error"></div>
     {% endif %}
 
+    <div id="republish-wrap" style="display: {% if job['status'] == 'failed' and job['final_video_path'] %}block{% else %}none{% endif %}; margin-top: 16px; margin-bottom: 24px;">
+        <button id="republish-btn" onclick="triggerRepublish()" class="btn primary" style="background-color: #6366f1; border-color: #6366f1; color: white; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer;">
+            🔄 {% if is_zh %}重新发布到 YouTube (不消耗视频生成 Token){% else %}Re-publish to YouTube (No Tokens Wasted){% endif %}
+        </button>
+        <span id="republish-status-text" style="margin-left: 12px; font-weight: 500; color: #4b5563; font-size: 0.9rem;"></span>
+    </div>
+
     <h2>{% if is_zh %}视频片段{% else %}Clips{% endif %}</h2>
     <div class="table-wrap">
         <table id="clips-table">
@@ -193,6 +200,15 @@
             errorNode.classList.add("hidden");
         }
 
+        const republishWrap = document.getElementById("republish-wrap");
+        if (republishWrap) {
+            if (job.status === "failed" && job.final_video_path) {
+                republishWrap.style.display = "block";
+            } else {
+                republishWrap.style.display = "none";
+            }
+        }
+
         const tbody = document.querySelector("#clips-table tbody");
         tbody.innerHTML = clips.map(clip => `
             <tr>
@@ -220,6 +236,34 @@
         } else {
             wrap.style.display = "none";
             player.removeAttribute("src");
+        }
+    }
+
+    async function triggerRepublish() {
+        const btn = document.getElementById("republish-btn");
+        const text = document.getElementById("republish-status-text");
+        const isZh = {{ "true" if is_zh else "false" }};
+        btn.disabled = true;
+        text.textContent = isZh ? "正在提交重新发布任务..." : "Submitting republish task...";
+        text.style.color = "#4b5563";
+        try {
+            const response = await fetch(`/jobs/${jobId}/republish`, { method: "POST" });
+            const data = await response.json();
+            if (response.ok) {
+                text.textContent = isZh ? "✅ 重新发布中，页面即将自动刷新并显示进度..." : "✅ Re-publishing in progress, auto-refreshing...";
+                text.style.color = "#059669";
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+            } else {
+                text.textContent = `❌ ${isZh ? '失败' : 'Failed'}: ${data.detail || "Error"}`;
+                text.style.color = "#dc2626";
+                btn.disabled = false;
+            }
+        } catch (e) {
+            text.textContent = isZh ? "❌ 发生网络错误" : "❌ Network error";
+            text.style.color = "#dc2626";
+            btn.disabled = false;
         }
     }
 

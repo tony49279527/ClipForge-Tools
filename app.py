@@ -1385,6 +1385,77 @@ async def api_create_external_job(
     }
 
 
+from fastapi import BackgroundTasks
+
+@app.post("/jobs/{job_id}/republish")
+def api_republish_job(job_id: int, background_tasks: BackgroundTasks):
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    final_video_path = job["final_video_path"]
+    if not final_video_path or not os.path.exists(final_video_path):
+        raise HTTPException(status_code=400, detail="Final video file not found on disk. Cannot republish.")
+
+    # Reset status
+    update_job_fields(job_id, {
+        "status": "uploading",
+        "current_step": "Uploading to YouTube",
+        "error_message": None
+    })
+
+    background_tasks.add_task(republish_worker, job_id)
+    return {"status": "success", "message": "Republish task started in the background."}
+
+
+def republish_worker(job_id: int):
+    try:
+        from db import get_job_by_id, update_job_fields, create_usage_event
+        from youtube_core import upload_youtube
+        from pathlib import Path
+
+        job = get_job_by_id(job_id)
+        if not job:
+            return
+
+        final_video_path = Path(job["final_video_path"])
+        
+        youtube_url = upload_youtube(
+            file_path=final_video_path,
+            title=job["youtube_title"],
+            description=job["youtube_description"] or "",
+            privacy_status=job["privacy"],
+            youtube_account_id=job["youtube_account_id"]
+        )
+
+        update_job_fields(job_id, {
+            "status": "succeeded",
+            "current_step": "completed",
+            "youtube_url": youtube_url,
+            "error_message": None
+        })
+
+        try:
+            create_usage_event({
+                "job_id": job_id,
+                "stage": "publish",
+                "entity_type": "video",
+                "action": "republish_youtube",
+                "status": "succeeded",
+                "estimated_cost_cny": 0.0,
+                "total_tokens": 0
+            })
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.exception("Republish worker failed for job %s", job_id)
+        update_job_fields(job_id, {
+            "status": "failed",
+            "current_step": "failed",
+            "error_message": str(e)
+        })
+
 
 if __name__ == "__main__":
     import uvicorn

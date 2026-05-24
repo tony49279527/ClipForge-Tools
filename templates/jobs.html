@@ -43,8 +43,14 @@
                         {% else %}
                         <span class="badge badge-web" style="background-color: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; display: inline-block;">💻 {% if is_zh %}网页端{% else %}Web{% endif %}</span>
                         {% endif %}
+                    <td>
+                        {{ job["project_name"] }}
+                        {% if job["status"] == "failed" and job["error_message"] %}
+                        <div style="color: #ef4444; font-size: 0.75rem; font-weight: 500; margin-top: 4px; max-width: 280px; word-break: break-all; line-height: 1.2;">
+                            ❌ {{ job["error_message"] }}
+                        </div>
+                        {% endif %}
                     </td>
-                    <td>{{ job["project_name"] }}</td>
                     <td>{{ job["product_name"] }}</td>
                     <td><span class="status {{ job['status'] }}">{{ status_label(job["status"]) }}</span></td>
                     <td>{{ step_label(job["current_step"]) }}</td>

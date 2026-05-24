@@ -9,10 +9,14 @@ Replaces the previous daemon-thread approach with a proper task queue:
 """
 
 import os
+import logging
+import threading
 from datetime import datetime
+from importlib import import_module
 from typing import Any, Dict, List, Optional
 
 from redis import Redis
+from redis.exceptions import RedisError
 from rq import Queue, Retry
 from rq.job import Job as RQJob
 
@@ -22,6 +26,7 @@ from rq.job import Job as RQJob
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 QUEUE_NAME = os.getenv("RQ_QUEUE_NAME", "clipforge")
+ALLOW_THREAD_FALLBACK = os.getenv("ALLOW_THREAD_FALLBACK", "true").lower() not in {"0", "false", "no"}
 
 # Concurrency limits
 MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "3"))
@@ -36,14 +41,48 @@ RETRY_DELAY_SEC = int(os.getenv("JOB_RETRY_DELAY", "5"))
 _redis_client: Optional[Redis] = None
 _queue: Optional[Queue] = None
 STATIC_JOB_PREFIXES = ("video", "prompts", "storyboard_video", "publish", "storyboard_clip")
+logger = logging.getLogger(__name__)
+
+
+class LocalThreadJob:
+    """Minimal job-like object returned when Redis/RQ is unavailable."""
+
+    def __init__(self, job_id: str):
+        self.id = job_id
+
+
+def _resolve_callable(func: str):
+    module_name, attr_name = func.rsplit(".", 1)
+    module = import_module(module_name)
+    return getattr(module, attr_name)
+
+
+def _run_fallback_job(job_id: str, func: str, args: List[Any]) -> None:
+    target = _resolve_callable(func)
+    try:
+        target(*args)
+    except Exception:
+        logger.exception("Local fallback job failed: %s", job_id)
+
+
+def _enqueue_local_fallback(*, job_id: str, func: str, args: List[Any]) -> LocalThreadJob:
+    thread = threading.Thread(
+        target=_run_fallback_job,
+        args=(job_id, func, args),
+        name=f"clipforge-fallback-{job_id}",
+        daemon=True,
+    )
+    thread.start()
+    logger.warning("Redis/RQ unavailable, running job via local thread fallback: %s", job_id)
+    return LocalThreadJob(job_id)
 
 
 def _enqueue_with_reusable_job_id(*, job_id: str, func: str, args: List[Any], job_timeout: int) -> RQJob:
     """Enqueue with a stable job id, reusing active jobs and replacing finished ones."""
-    q = get_queue()
-    redis_conn = get_redis()
-
     try:
+        q = get_queue()
+        redis_conn = get_redis()
+
         existing_job = RQJob.fetch(job_id, connection=redis_conn)
         existing_status = existing_job.get_status(refresh=False)
         if existing_status in {"queued", "started", "deferred", "scheduled"}:
@@ -53,15 +92,25 @@ def _enqueue_with_reusable_job_id(*, job_id: str, func: str, args: List[Any], jo
         except Exception:
             pass
     except Exception:
-        pass
+        existing_job = None
 
-    return q.enqueue(
-        func,
-        *args,
-        retry=Retry(max=MAX_RETRIES, interval=[RETRY_DELAY_SEC]),
-        job_timeout=job_timeout,
-        job_id=job_id,
-    )
+    try:
+        return q.enqueue(
+            func,
+            *args,
+            retry=Retry(max=MAX_RETRIES, interval=[RETRY_DELAY_SEC]),
+            job_timeout=job_timeout,
+            job_id=job_id,
+        )
+    except RedisError:
+        if not ALLOW_THREAD_FALLBACK:
+            raise
+        return _enqueue_local_fallback(job_id=job_id, func=func, args=args)
+    except Exception:
+        if not ALLOW_THREAD_FALLBACK:
+            raise
+        logger.exception("Queue enqueue failed, switching to local thread fallback for %s", job_id)
+        return _enqueue_local_fallback(job_id=job_id, func=func, args=args)
 
 
 def get_redis() -> Redis:
@@ -230,12 +279,15 @@ def _list_rq_job_ids(job_id: int) -> List[str]:
     redis_conn = get_redis()
     job_ids = [f"{prefix}_{job_id}" for prefix in STATIC_JOB_PREFIXES]
 
-    for pattern in (f"rq:job:images_{job_id}_*", f"rq:job:storyboard_clip_{job_id}_*"):
-        for key in redis_conn.scan_iter(match=pattern):
-            if isinstance(key, bytes):
-                key = key.decode("utf-8")
-            if isinstance(key, str) and key.startswith("rq:job:"):
-                job_ids.append(key[len("rq:job:") :])
+    try:
+        for pattern in (f"rq:job:images_{job_id}_*", f"rq:job:storyboard_clip_{job_id}_*"):
+            for key in redis_conn.scan_iter(match=pattern):
+                if isinstance(key, bytes):
+                    key = key.decode("utf-8")
+                if isinstance(key, str) and key.startswith("rq:job:"):
+                    job_ids.append(key[len("rq:job:") :])
+    except RedisError:
+        return []
 
     seen = set()
     deduped: List[str] = []
@@ -247,7 +299,10 @@ def _list_rq_job_ids(job_id: int) -> List[str]:
 
 
 def _fetch_related_jobs(job_id: int) -> List[RQJob]:
-    redis_conn = get_redis()
+    try:
+        redis_conn = get_redis()
+    except RedisError:
+        return []
     jobs: List[RQJob] = []
     for rq_job_id in _list_rq_job_ids(job_id):
         try:

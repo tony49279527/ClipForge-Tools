@@ -7,7 +7,7 @@
     <div class="hero-copy">
         <span class="eyebrow">{% if is_zh %}任务队列{% else %}Job Queue{% endif %}</span>
         <h1>{% if is_zh %}把所有视频任务放在一个地方看清楚。{% else %}Track every render run in one place.{% endif %}</h1>
-        <p class="hero-text">{% if is_zh %}统一查看任务状态、当前执行步骤和更新时间，随时进入详情页跟进每一次生成。{% else %}Monitor status, inspect current step, and jump back into any job detail page without digging through logs.{% endif %}</p>
+        <p class="hero-text">{% if is_zh %}统一查看任务状态、当前执行步骤和时间，随时进入详情页跟进每一次生成。{% else %}Monitor status, inspect current step, and jump back into any job detail page without digging through logs.{% endif %}</p>
     </div>
 </section>
 
@@ -25,10 +25,10 @@
                 <tr>
                     <th>ID</th>
                     <th>{% if is_zh %}来源{% else %}Source{% endif %}</th>
-                    <th>{% if is_zh %}项目{% else %}Project{% endif %}</th>
-                    <th>{% if is_zh %}产品{% else %}Product{% endif %}</th>
+                    <th>{% if is_zh %}项目 / 产品{% else %}Project / Product{% endif %}</th>
                     <th>{% if is_zh %}状态{% else %}Status{% endif %}</th>
                     <th>{% if is_zh %}当前步骤{% else %}Step{% endif %}</th>
+                    <th>{% if is_zh %}提交时间{% else %}Submitted{% endif %}</th>
                     <th>{% if is_zh %}更新时间{% else %}Updated{% endif %}</th>
                     <th>{% if is_zh %}YouTube 链接{% else %}YouTube{% endif %}</th>
                 </tr>
@@ -39,22 +39,26 @@
                     <td><a href="/jobs/{{ job['id'] }}?lang={{ lang }}">#{{ job["id"] }}</a></td>
                     <td>
                         {% if job["source"] == "api" %}
-                        <span class="badge badge-api" style="background-color: #6366f1; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; display: inline-block;">🤖 Hermes API</span>
+                        <span class="badge badge-api" style="background-color: #6366f1; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block; white-space: nowrap;">🤖 Hermes API</span>
                         {% else %}
-                        <span class="badge badge-web" style="background-color: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; display: inline-block;">💻 {% if is_zh %}网页端{% else %}Web{% endif %}</span>
+                        <span class="badge badge-web" style="background-color: #10b981; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block; white-space: nowrap;">💻 {% if is_zh %}网页端{% else %}Web{% endif %}</span>
                         {% endif %}
+                    </td>
                     <td>
-                        {{ job["project_name"] }}
+                        <div style="font-weight: 500;">
+                            <a href="/jobs/{{ job['id'] }}?lang={{ lang }}" style="color: inherit; text-decoration: none; cursor: pointer;">{{ job["project_name"] }}</a>
+                        </div>
+                        <div style="color: #6b7280; font-size: 0.8rem;">{{ job["product_name"] }}</div>
                         {% if job["status"] == "failed" and job["error_message"] %}
-                        <div style="color: #ef4444; font-size: 0.75rem; font-weight: 500; margin-top: 4px; max-width: 280px; word-break: break-all; line-height: 1.2;">
-                            ❌ {{ job["error_message"] }}
+                        <div style="color: #ef4444; font-size: 0.72rem; font-weight: 500; margin-top: 4px; max-width: 280px; word-break: break-word; line-height: 1.3;">
+                            ❌ {{ job["error_message"][:120] }}{% if job["error_message"]|length > 120 %}…{% endif %}
                         </div>
                         {% endif %}
                     </td>
-                    <td>{{ job["product_name"] }}</td>
                     <td><span class="status {{ job['status'] }}">{{ status_label(job["status"]) }}</span></td>
                     <td>{{ step_label(job["current_step"]) }}</td>
-                    <td>{{ job["updated_at"] }}</td>
+                    <td style="white-space: nowrap; font-size: 0.8rem; color: #6b7280;">{{ format_datetime(job["created_at"]) }}</td>
+                    <td style="white-space: nowrap; font-size: 0.8rem; color: #6b7280;">{{ format_datetime(job["updated_at"]) }}</td>
                     <td>
                         {% if job["youtube_url"] %}
                         <a href="{{ job['youtube_url'] }}" target="_blank" style="text-decoration: underline;">{% if is_zh %}播放{% else %}Watch{% endif %}</a>
@@ -65,7 +69,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8">{% if is_zh %}还没有任务。可以先从“新建任务”页面创建第一条视频生成任务。{% else %}No jobs yet. Create the first product video run from the New Job page.{% endif %}</td>
+                    <td colspan="8">{% if is_zh %}还没有任务。可以先从"新建任务"页面创建第一条视频生成任务。{% else %}No jobs yet. Create the first product video run from the New Job page.{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>

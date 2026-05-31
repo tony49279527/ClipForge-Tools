@@ -10,6 +10,23 @@ from typing import Any, Dict, List, Optional
 import base64
 import requests
 from requests import HTTPError
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+
+def get_retry_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=5,
+        backoff_factor=2,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "OPTIONS", "POST"]
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+http_session = get_retry_session()
 
 try:
     from prompt_enhance import enhance_video_prompt
@@ -177,7 +194,7 @@ def create_seedance_task(
     endpoint = f"{SEEDANCE_BASE_URL}/contents/generations/tasks"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     proxies = {"http": None, "https": None}
-    response = requests.post(endpoint, headers=headers, json=payload, timeout=60, proxies=proxies)
+    response = http_session.post(endpoint, headers=headers, json=payload, timeout=60, proxies=proxies)
     try:
         response.raise_for_status()
     except HTTPError as exc:
@@ -193,7 +210,7 @@ def create_seedance_task(
                     "content": build_seedance_content(prompt, reference_image_url),
                 },
             }
-            fallback_response = requests.post(
+            fallback_response = http_session.post(
                 endpoint,
                 headers=headers,
                 json=fallback_payload,
@@ -236,7 +253,7 @@ def wait_seedance_task(task_id: str, poll_interval: int = 8, max_wait_seconds: i
     deadline = time.time() + max_wait_seconds
     proxies = {"http": None, "https": None}
     while time.time() < deadline:
-        response = requests.get(
+        response = http_session.get(
             f"{SEEDANCE_BASE_URL}/contents/generations/tasks/{task_id}",
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=60,
@@ -287,7 +304,7 @@ def extract_total_tokens(task_result: Dict) -> int:
 def download_video(video_url: str, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     proxies = {"http": None, "https": None}
-    with requests.get(video_url, stream=True, timeout=300, proxies=proxies) as response:
+    with http_session.get(video_url, stream=True, timeout=300, proxies=proxies) as response:
         response.raise_for_status()
         with output_path.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
@@ -371,22 +388,11 @@ def create_cta_end_card(
     return output_path
 
 
-def stitch_with_cta(
+def stitch_clips(
     clip_paths: List[Path],
     output_dir: Path,
-    product_name: str = "",
-    brand_hint: str = "",
-    resolution: str = "720p",
 ) -> Path:
-    """Create CTA end card, append to clips, then concat into final video."""
-    cta_path = output_dir / "cta_end_card.mp4"
-    try:
-        create_cta_end_card(cta_path, product_name, brand_hint, resolution)
-        clip_paths = list(clip_paths) + [cta_path]
-    except Exception as exc:
-        # CTA failed — continue without it
-        print(f"CTA card creation skipped: {exc}")
-
+    """Concat clips into final video without any forced CTA."""
     return concat_clips(clip_paths, output_dir / "final_video.mp4")
 
 
@@ -593,10 +599,15 @@ def run_video_job(job_id: int) -> None:
                 },
             )
 
+        if not clip_paths:
+            failed_clips = [row for row in get_clip_rows_by_job_id(job_id) if row["status"] == "failed"]
+            reason = failed_clips[0]["error_message"] if failed_clips and failed_clips[0]["error_message"] else "Unknown API failure"
+            raise RuntimeError(f"All video clips failed to generate. Reason: {reason}")
+
         final_video_path = None
         if int(job["stitch_final_video"]) == 1:
             update_job_fields(job_id, {"status": "stitching", "current_step": "Concatenating clips"})
-            final_video_path = stitch_with_cta(clip_paths, job_output_dir, job["product_name"], resolution=job["resolution"])
+            final_video_path = stitch_clips(clip_paths, job_output_dir)
             update_job_fields(job_id, {"final_video_path": str(final_video_path)})
         elif clip_paths:
             final_video_path = clip_paths[0]
@@ -609,7 +620,7 @@ def run_video_job(job_id: int) -> None:
                 video_path=final_video_path,
                 title=job["youtube_title"],
                 description=job["youtube_description"],
-                tags=[job["product_name"], job["project_name"], "tools", "amazon"],
+                tags=[job["product_name"], job["project_name"]],
                 privacy=job["privacy"],
                 account_id=job["youtube_account_id"] or None,
             )
@@ -702,10 +713,10 @@ def run_storyboard_video_job(job_id: int) -> None:
                 frame_meta = get_storyboard_frame(spec["frame_id"])
                 video_prompt = enhance_video_prompt(
                     original_prompt=spec["prompt"],
-                    product_name=job.get("product_name", ""),
+                    product_name=job["product_name"] or "",
                     scene_role=frame_meta["scene_role"] if frame_meta else "scene",
-                    clip_duration=job.get("clip_duration", 10),
-                    ratio=job.get("ratio", "9:16"),
+                    clip_duration=job["clip_duration"] or 10,
+                    ratio=job["ratio"] or "9:16",
                 )
             seedance_task_id = create_seedance_task(
                 prompt=video_prompt,
@@ -747,7 +758,7 @@ def run_storyboard_video_job(job_id: int) -> None:
         final_video_path = None
         if int(job["stitch_final_video"]) == 1:
             update_job_fields(job_id, {"status": "stitching", "current_step": "Concatenating clips"})
-            final_video_path = stitch_with_cta(clip_paths, job_output_dir, job["product_name"], resolution=job["resolution"])
+            final_video_path = stitch_clips(clip_paths, job_output_dir)
             update_job_fields(job_id, {"final_video_path": str(final_video_path)})
         elif clip_paths:
             final_video_path = clip_paths[0]
@@ -941,7 +952,7 @@ def run_video_job_parallel(job_id: int) -> Dict[str, Any]:
         final_video_path = None
         if int(job["stitch_final_video"]) == 1 and clip_paths:
             update_job_fields(job_id, {"status": "stitching", "current_step": "Concatenating clips"})
-            final_video_path = stitch_with_cta(clip_paths, job_output_dir, job["product_name"], resolution=job["resolution"])
+            final_video_path = stitch_clips(clip_paths, job_output_dir)
             update_job_fields(job_id, {"final_video_path": str(final_video_path)})
         elif clip_paths:
             final_video_path = clip_paths[0]
@@ -955,7 +966,7 @@ def run_video_job_parallel(job_id: int) -> Dict[str, Any]:
                 video_path=final_video_path,
                 title=job["youtube_title"],
                 description=job["youtube_description"],
-                tags=[job["product_name"], job["project_name"], "tools", "amazon"],
+                tags=[job["product_name"], job["project_name"]],
                 privacy=job["privacy"],
                 account_id=job["youtube_account_id"] or None,
             )
@@ -1014,10 +1025,10 @@ def _generate_single_storyboard_clip(
             frame_meta = get_storyboard_frame(spec["frame_id"])
             video_prompt = enhance_video_prompt(
                 original_prompt=spec["prompt"],
-                product_name=job.get("product_name", ""),
+                product_name=job["product_name"] or "",
                 scene_role=frame_meta["scene_role"] if frame_meta else "scene",
-                clip_duration=job.get("clip_duration", 10),
-                ratio=job.get("ratio", "9:16"),
+                clip_duration=job["clip_duration"] or 10,
+                ratio=job["ratio"] or "9:16",
             )
 
         try:
@@ -1129,6 +1140,11 @@ def run_storyboard_single_clip_regeneration(job_id: int, clip_index: int) -> Dic
         raise RuntimeError(f"Clip {clip_index} regeneration failed.")
 
     clip_paths = _collect_sorted_successful_clip_paths(job_id)
+    if not clip_paths:
+        failed_clips = [row for row in get_clip_rows_by_job_id(job_id) if row["status"] == "failed"]
+        reason = failed_clips[0]["error_message"] if failed_clips and failed_clips[0]["error_message"] else "Unknown API failure"
+        raise RuntimeError(f"All video clips failed to generate. Reason: {reason}")
+
     final_video_path = None
     if int(job["stitch_final_video"]) == 1 and clip_paths:
         update_job_fields(job_id, {"status": "stitching", "workflow_stage": "videos_generating", "current_step": "Rebuilding final video"})
@@ -1216,7 +1232,7 @@ def run_storyboard_video_job_parallel(job_id: int) -> Dict[str, Any]:
         final_video_path = None
         if int(job["stitch_final_video"]) == 1 and clip_paths:
             update_job_fields(job_id, {"status": "stitching", "workflow_stage": "videos_generating", "current_step": "Concatenating clips"})
-            final_video_path = stitch_with_cta(clip_paths, job_output_dir, job["product_name"], resolution=job["resolution"])
+            final_video_path = stitch_clips(clip_paths, job_output_dir)
             update_job_fields(job_id, {"final_video_path": str(final_video_path)})
         elif clip_paths:
             final_video_path = clip_paths[0]

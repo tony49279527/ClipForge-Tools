@@ -3,10 +3,12 @@ import os
 import shutil
 import subprocess
 import uuid
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from zoneinfo import ZoneInfo
+from pydantic import BaseModel, Field, validator
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Header
 from fastapi.responses import FileResponse, RedirectResponse
@@ -109,7 +111,25 @@ def build_common_context(request: Request) -> dict:
         "workflow_stage_label": lambda value: workflow_label(value, is_zh),
         "video_mode_label": lambda value: value_label(value, "video_mode", is_zh),
         "privacy_label": lambda value: value_label(value, "privacy", is_zh),
+        "format_datetime": format_datetime_local,
     }
+
+
+def format_datetime_local(value: Optional[str]) -> str:
+    if not value:
+        return "-"
+    try:
+        normalized = value.strip()
+        if normalized.endswith("Z"):
+            dt = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        local_dt = dt.astimezone(ZoneInfo("Asia/Shanghai"))
+        return local_dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return value
 
 
 def workflow_label(stage: str, is_zh: bool) -> str:
@@ -689,9 +709,9 @@ def job_status(request: Request, job_id: int):
     except Exception as exc:
         queue = {"status": "unavailable", "error": str(exc)}
     payload = dict(job)
-    payload["status_label"] = status_label(job.get("status"), is_zh)
-    payload["step_label"] = current_step_label(job.get("current_step"), is_zh)
-    payload["uploaded_images_note_label"] = current_step_label(job.get("uploaded_images_note"), is_zh)
+    payload["status_label"] = status_label(payload.get("status"), is_zh)
+    payload["step_label"] = current_step_label(payload.get("current_step"), is_zh)
+    payload["uploaded_images_note_label"] = current_step_label(payload.get("uploaded_images_note"), is_zh)
     return {"job": payload, "clips": clips, "queue": queue}
 
 
@@ -882,8 +902,8 @@ def v2_job_status(request: Request, job_id: int):
     except Exception as exc:
         queue = {"status": "unavailable", "error": str(exc)}
     payload = dict(job)
-    payload["status_label"] = status_label(job.get("status"), lang_is_zh)
-    payload["step_label"] = current_step_label(job.get("current_step"), lang_is_zh)
+    payload["status_label"] = status_label(payload.get("status"), lang_is_zh)
+    payload["step_label"] = current_step_label(payload.get("current_step"), lang_is_zh)
     return {
         "job": payload,
         "stage_label": workflow_label(job["workflow_stage"], lang_is_zh),
@@ -1297,22 +1317,79 @@ def api_delete_template(template_id: int):
 
 
 class ExternalJobPayload(BaseModel):
-    project_name: str
-    product_name: str
-    product_brief: str
-    amazon_url: Optional[str] = ""
+    project_name: str = Field(..., min_length=1, max_length=200)
+    product_name: str = Field(..., min_length=1, max_length=200)
+    product_brief: str = Field(..., min_length=1, max_length=4000)
+    amazon_url: Optional[str] = Field("", max_length=2000)
     video_mode: Optional[str] = "shorts"
     ratio: Optional[str] = "9:16"
     clip_duration: Optional[int] = 5
     clip_count: Optional[int] = 2
     resolution: Optional[str] = "720p"
-    youtube_title: Optional[str] = None
-    youtube_description: Optional[str] = ""
-    youtube_account_id: Optional[str] = ""
+    youtube_title: Optional[str] = Field(None, max_length=100)
+    youtube_description: Optional[str] = Field("", max_length=5000)
+    youtube_account_id: Optional[str] = Field("", max_length=200)
     privacy: Optional[str] = "private"
-    upload_to_youtube: Optional[bool] = True
+    upload_to_youtube: Optional[bool] = False
     stitch_final_video: Optional[bool] = True
     reference_image_urls: Optional[List[str]] = Field(default_factory=list)
+
+    @validator("video_mode")
+    def validate_video_mode(cls, value: Optional[str]) -> str:
+        allowed = {"shorts", "long_video"}
+        if value not in allowed:
+            raise ValueError(f"video_mode must be one of {sorted(allowed)}")
+        return value
+
+    @validator("ratio")
+    def validate_ratio(cls, value: Optional[str]) -> str:
+        allowed = {"9:16", "16:9"}
+        if value not in allowed:
+            raise ValueError(f"ratio must be one of {sorted(allowed)}")
+        return value
+
+    @validator("clip_duration")
+    def validate_clip_duration(cls, value: Optional[int]) -> int:
+        allowed = {5, 10, 15}
+        if value not in allowed:
+            raise ValueError(f"clip_duration must be one of {sorted(allowed)}")
+        return int(value)
+
+    @validator("clip_count")
+    def validate_clip_count(cls, value: Optional[int]) -> int:
+        allowed = {1, 2, 4, 20}
+        if value not in allowed:
+            raise ValueError(f"clip_count must be one of {sorted(allowed)}")
+        return int(value)
+
+    @validator("resolution")
+    def validate_resolution(cls, value: Optional[str]) -> str:
+        allowed = {"480p", "720p"}
+        if value not in allowed:
+            raise ValueError(f"resolution must be one of {sorted(allowed)}")
+        return value
+
+    @validator("privacy")
+    def validate_privacy(cls, value: Optional[str]) -> str:
+        allowed = {"private", "unlisted", "public"}
+        if value not in allowed:
+            raise ValueError(f"privacy must be one of {sorted(allowed)}")
+        return value
+
+    @validator("reference_image_urls")
+    def validate_reference_image_urls(cls, value: Optional[List[str]]) -> List[str]:
+        urls = value or []
+        if len(urls) > 20:
+            raise ValueError("reference_image_urls cannot contain more than 20 items")
+        normalized: List[str] = []
+        for url in urls:
+            trimmed = (url or "").strip()
+            if not trimmed:
+                continue
+            if len(trimmed) > 2000:
+                raise ValueError("reference_image_url is too long")
+            normalized.append(trimmed)
+        return normalized
 
 
 @app.post("/api/external/jobs")
@@ -1322,21 +1399,27 @@ async def api_create_external_job(
 ):
     """Secure JSON endpoint for external systems (e.g. Lobster, Hermes, OpenClaw) to enqueue jobs."""
     # API key check
-    configured_api_key = os.getenv("CLIPFORGE_API_KEY", "lobster_secret_key")
-    if configured_api_key and x_api_key != configured_api_key:
+    configured_api_key = (os.getenv("CLIPFORGE_API_KEY") or "").strip()
+    if not configured_api_key:
+        raise HTTPException(status_code=503, detail="External API is disabled because CLIPFORGE_API_KEY is not configured.")
+    if x_api_key != configured_api_key:
         raise HTTPException(status_code=401, detail="Unauthorized client: Invalid API Key")
 
     youtube_account_id = (payload.youtube_account_id or "").strip()
-    if payload.upload_to_youtube and not youtube_account_id:
-        # Fallback to the first available active account
-        accounts = list_youtube_accounts()
-        if accounts:
-            youtube_account_id = accounts[0]["account_id"]
-        else:
+    accounts = list_youtube_accounts()
+    
+    if payload.upload_to_youtube:
+        if not accounts:
             raise HTTPException(
                 status_code=400,
                 detail="YouTube upload is enabled, but no YouTube accounts are configured on this server."
             )
+        
+        valid_ids = {a["account_id"] for a in accounts}
+        if not youtube_account_id:
+            raise HTTPException(status_code=400, detail="youtube_account_id is required when upload_to_youtube is true.")
+        if youtube_account_id not in valid_ids:
+            raise HTTPException(status_code=400, detail="youtube_account_id is not a configured account on this server.")
 
     # Use defaults for missing title
     youtube_title = (payload.youtube_title or "").strip()
@@ -1385,14 +1468,17 @@ async def api_create_external_job(
     }
 
 
-from fastapi import BackgroundTasks
-
 @app.post("/jobs/{job_id}/republish")
-def api_republish_job(job_id: int, background_tasks: BackgroundTasks):
+def api_republish_job(job_id: int):
     job = get_job_by_id(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+    if job["status"] != "failed":
+        raise HTTPException(status_code=400, detail="Only failed jobs can be republished.")
+    if int(job["upload_to_youtube"] or 0) != 1:
+        raise HTTPException(status_code=400, detail="This job is not configured for YouTube upload.")
+    if not (job["youtube_account_id"] or "").strip():
+        raise HTTPException(status_code=400, detail="A YouTube account must be configured before republishing.")
     final_video_path = job["final_video_path"]
     if not final_video_path or not os.path.exists(final_video_path):
         raise HTTPException(status_code=400, detail="Final video file not found on disk. Cannot republish.")
@@ -1404,13 +1490,48 @@ def api_republish_job(job_id: int, background_tasks: BackgroundTasks):
         "error_message": None
     })
 
-    background_tasks.add_task(republish_worker, job_id)
+    from task_queue import enqueue_republish_job
+    enqueue_republish_job(job_id)
     return {"status": "success", "message": "Republish task started in the background."}
+
+@app.post("/jobs/{job_id}/retry")
+def api_retry_job(job_id: int):
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    from task_queue import enqueue_video_job, enqueue_storyboard_video_job
+
+    if job["video_mode"] == "storyboard":
+        update_job_fields(job_id, {
+            "status": "queued",
+            "current_step": "Restarting storyboard generation",
+            "error_message": None,
+            "workflow_stage": "videos_generating",
+        })
+        enqueue_storyboard_video_job(job_id)
+    else:
+        # Clear out clip statuses so it starts fresh
+        from db import get_conn
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("UPDATE clips SET status='queued', error_message=NULL WHERE job_id=?", (job_id,))
+        conn.commit()
+        conn.close()
+
+        update_job_fields(job_id, {
+            "status": "queued",
+            "current_step": "queued",
+            "error_message": None,
+        })
+        enqueue_video_job(job_id)
+
+    return {"status": "success", "message": "Job successfully queued for retry."}
 
 
 def republish_worker(job_id: int):
     try:
-        from db import get_job_by_id, update_job_fields, create_usage_event
+        from db import get_job_by_id, update_job_fields
         from youtube_core import upload_youtube
         from pathlib import Path
 
@@ -1437,15 +1558,17 @@ def republish_worker(job_id: int):
         })
 
         try:
-            create_usage_event({
-                "job_id": job_id,
-                "stage": "publish",
-                "entity_type": "video",
-                "action": "republish_youtube",
-                "status": "succeeded",
-                "estimated_cost_cny": 0.0,
-                "total_tokens": 0
-            })
+            record_usage(
+                job_id=job_id,
+                stage="publishing",
+                entity_type="job",
+                entity_id=job_id,
+                action="republish_youtube",
+                model_name="youtube.videos.insert",
+                total_tokens=0,
+                estimated_cost_cny=0,
+                status="succeeded",
+            )
         except Exception:
             pass
 

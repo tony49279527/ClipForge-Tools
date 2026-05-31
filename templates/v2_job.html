@@ -582,7 +582,7 @@
                             <td>{{ event["model_name"] or "-" }}</td>
                             <td>{{ event["total_tokens"] }}</td>
                             <td>¥{{ event["estimated_cost_cny"] }}</td>
-                            <td>{{ event["created_at"] }}</td>
+                            <td>{{ format_datetime(event["created_at"]) }}</td>
                         </tr>
                         {% else %}
                         <tr><td colspan="6">{% if is_zh %}还没有成本记录。{% else %}No usage events yet.{% endif %}</td></tr>

@@ -40,7 +40,7 @@ RETRY_DELAY_SEC = int(os.getenv("JOB_RETRY_DELAY", "5"))
 
 _redis_client: Optional[Redis] = None
 _queue: Optional[Queue] = None
-STATIC_JOB_PREFIXES = ("video", "prompts", "storyboard_video", "publish", "storyboard_clip")
+STATIC_JOB_PREFIXES = ("video", "prompts", "storyboard_video", "publish", "republish", "storyboard_clip")
 logger = logging.getLogger(__name__)
 
 
@@ -191,6 +191,16 @@ def enqueue_publish_job(job_id: int) -> RQJob:
     )
 
 
+def enqueue_republish_job(job_id: int) -> RQJob:
+    """Enqueue a 1.0 YouTube republish job."""
+    return _enqueue_with_reusable_job_id(
+        job_id=f"republish_{job_id}",
+        func="task_queue.run_republish_wrapper",
+        args=[job_id],
+        job_timeout=600,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Wrapper functions (called by RQ worker)
 # ---------------------------------------------------------------------------
@@ -268,6 +278,18 @@ def run_publish_wrapper(job_id: int) -> Dict[str, Any]:
     if not job or job["workflow_stage"] == "failed":
         raise RuntimeError((job["error_message"] if job else None) or f"YouTube publishing failed for job {job_id}")
     return {"job_id": job_id, "stage": job["workflow_stage"], "youtube_url": job["youtube_url"]}
+
+
+def run_republish_wrapper(job_id: int) -> Dict[str, Any]:
+    """Wrapper for 1.0 YouTube republishing."""
+    from app import republish_worker as _run
+    from db import get_job_by_id
+
+    _run(job_id)
+    job = get_job_by_id(job_id)
+    if not job or job["status"] == "failed":
+        raise RuntimeError((job["error_message"] if job else None) or f"YouTube republishing failed for job {job_id}")
+    return {"job_id": job_id, "status": job["status"], "youtube_url": job["youtube_url"]}
 
 
 # ---------------------------------------------------------------------------

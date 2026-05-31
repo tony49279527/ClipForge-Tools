@@ -103,6 +103,13 @@
         <span id="republish-status-text" style="margin-left: 12px; font-weight: 500; color: #4b5563; font-size: 0.9rem;"></span>
     </div>
 
+    <div id="retry-wrap" style="display: {% if job['status'] == 'failed' %}block{% else %}none{% endif %}; margin-top: 16px; margin-bottom: 24px;">
+        <button id="retry-btn" onclick="triggerRetry()" class="btn primary" style="background-color: #ef4444; border-color: #ef4444; color: white; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer;">
+            ↻ {% if is_zh %}重新运行此任务 (重试失败的生成){% else %}Retry Job (Regenerate Failed Videos){% endif %}
+        </button>
+        <span id="retry-status-text" style="margin-left: 12px; font-weight: 500; color: #4b5563; font-size: 0.9rem;"></span>
+    </div>
+
     <h2>{% if is_zh %}视频片段{% else %}Clips{% endif %}</h2>
     <div class="table-wrap">
         <table id="clips-table">
@@ -209,6 +216,15 @@
             }
         }
 
+        const retryWrap = document.getElementById("retry-wrap");
+        if (retryWrap) {
+            if (job.status === "failed") {
+                retryWrap.style.display = "block";
+            } else {
+                retryWrap.style.display = "none";
+            }
+        }
+
         const tbody = document.querySelector("#clips-table tbody");
         tbody.innerHTML = clips.map(clip => `
             <tr>
@@ -250,19 +266,43 @@
             const response = await fetch(`/jobs/${jobId}/republish`, { method: "POST" });
             const data = await response.json();
             if (response.ok) {
-                text.textContent = isZh ? "✅ 重新发布中，页面即将自动刷新并显示进度..." : "✅ Re-publishing in progress, auto-refreshing...";
-                text.style.color = "#059669";
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1500);
+                text.textContent = isZh ? "✅ 任务已提交" : "✅ Task submitted";
+                text.style.color = "#10b981";
+                refreshStatus();
             } else {
-                text.textContent = `❌ ${isZh ? '失败' : 'Failed'}: ${data.detail || "Error"}`;
-                text.style.color = "#dc2626";
+                text.textContent = `❌ ${data.detail || "提交失败/Failed"}`;
+                text.style.color = "#ef4444";
                 btn.disabled = false;
             }
         } catch (e) {
-            text.textContent = isZh ? "❌ 发生网络错误" : "❌ Network error";
-            text.style.color = "#dc2626";
+            text.textContent = `❌ 网络错误 / Network error`;
+            text.style.color = "#ef4444";
+            btn.disabled = false;
+        }
+    }
+
+    async function triggerRetry() {
+        const btn = document.getElementById("retry-btn");
+        const text = document.getElementById("retry-status-text");
+        const isZh = {{ "true" if is_zh else "false" }};
+        btn.disabled = true;
+        text.textContent = isZh ? "正在提交重试任务..." : "Submitting retry task...";
+        text.style.color = "#4b5563";
+        try {
+            const response = await fetch(`/jobs/${jobId}/retry`, { method: "POST" });
+            const data = await response.json();
+            if (response.ok) {
+                text.textContent = isZh ? "✅ 任务已重新加入队列" : "✅ Task requeued";
+                text.style.color = "#10b981";
+                refreshStatus();
+            } else {
+                text.textContent = `❌ ${data.detail || "提交失败/Failed"}`;
+                text.style.color = "#ef4444";
+                btn.disabled = false;
+            }
+        } catch (e) {
+            text.textContent = `❌ 网络错误 / Network error`;
+            text.style.color = "#ef4444";
             btn.disabled = false;
         }
     }

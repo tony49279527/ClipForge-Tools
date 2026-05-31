@@ -42,11 +42,11 @@ def get_credentials_from_env(account_id: Optional[str] = None) -> Credentials:
     scopes_raw = os.getenv(f"GOOGLE_YOUTUBE_SCOPES{suffix}")
     token_uri = os.getenv(f"GOOGLE_TOKEN_URI{suffix}", "https://oauth2.googleapis.com/token")
 
-    # Log presence of env vars safely
+    # Log only presence, never token/secret fragments.
     logger.info(f"Checking environment variables for account suffix '{suffix}':")
-    logger.info(f"  GOOGLE_CLIENT_ID{suffix}: {'PRESENT (' + client_id[:8] + '...)' if client_id else 'MISSING'}")
-    logger.info(f"  GOOGLE_CLIENT_SECRET{suffix}: {'PRESENT (' + client_secret[:4] + '...)' if client_secret else 'MISSING'}")
-    logger.info(f"  GOOGLE_REFRESH_TOKEN{suffix}: {'PRESENT (' + refresh_token[:8] + '...)' if refresh_token else 'MISSING'}")
+    logger.info(f"  GOOGLE_CLIENT_ID{suffix}: {'PRESENT' if client_id else 'MISSING'}")
+    logger.info(f"  GOOGLE_CLIENT_SECRET{suffix}: {'PRESENT' if client_secret else 'MISSING'}")
+    logger.info(f"  GOOGLE_REFRESH_TOKEN{suffix}: {'PRESENT' if refresh_token else 'MISSING'}")
 
     if not all([client_id, client_secret, refresh_token]):
         missing = [k for k, v in {
@@ -230,11 +230,25 @@ def upload_youtube(
     try:
         service = get_youtube_service(account_id)
         
+        # YouTube API Limits: Title (100 chars), Description (5000 chars), Tags (500 chars total)
+        safe_title = title[:97] + "..." if len(title) > 100 else title
+        safe_description = description[:4997] + "..." if len(description) > 5000 else description
+        
+        safe_tags = []
+        tags_len = 0
+        for t in tags:
+            # tag length + 1 for comma separator
+            if tags_len + len(t) + 1 <= 450: 
+                safe_tags.append(t)
+                tags_len += len(t) + 1
+            else:
+                break
+
         body = {
             "snippet": {
-                "title": title,
-                "description": description,
-                "tags": tags,
+                "title": safe_title,
+                "description": safe_description,
+                "tags": safe_tags,
                 "categoryId": "22",  # People & Blogs
             },
             "status": {

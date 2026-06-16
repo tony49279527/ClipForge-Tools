@@ -185,6 +185,8 @@ Current V3 capabilities:
 
 V3 docs:
 
+Current V3 development status: `docs/clipforge-v3/CURRENT_STATUS.md`
+
 - `docs/clipforge-v3/README.md`
 - `docs/clipforge-v3/user-guide-zh.md`
 - `docs/clipforge-v3/operator-guide.md`

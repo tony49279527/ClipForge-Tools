@@ -187,6 +187,7 @@ V3 docs:
 
 Current V3 development status: `docs/clipforge-v3/CURRENT_STATUS.md`
 Real Provider readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
+Object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
 
 - `docs/clipforge-v3/README.md`
 - `docs/clipforge-v3/user-guide-zh.md`

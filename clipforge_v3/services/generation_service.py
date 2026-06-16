@@ -40,6 +40,7 @@ from clipforge_v3.services.product_truth_service import get_latest_product_truth
 from clipforge_v3.services.provider_asset_resolver import resolve_provider_references
 from clipforge_v3.services.scheduling_service import compute_schedule_state
 from clipforge_v3.services.shot_service import list_shots
+from clipforge_v3.services.storage_service import StorageError, get_storage, take_video_object_key
 
 
 OUTPUTS_DIR = Path(os.getenv("OUTPUTS_DIR", "outputs")).resolve()
@@ -323,6 +324,43 @@ def _safe_download_error(error: Exception, video_url: str | None) -> dict:
     }
 
 
+def _safe_storage_error(error: Exception) -> dict:
+    return {
+        "code": "artifact_upload_failed",
+        "message": sanitize(str(error)),
+        "recovery": "storage_recovery_required",
+    }
+
+
+def _store_provider_video_artifact(*, local_path: str, provider_video_url: str | None, project: dict, shot: dict, submission: dict) -> dict:
+    path = Path(local_path)
+    size_bytes = path.stat().st_size if path.exists() else None
+    storage = get_storage()
+    if getattr(storage, "backend", "local") != "r2":
+        return {
+            "storage_backend": "local",
+            "local_path": local_path,
+            "remote_url": provider_video_url,
+            "object_key": None,
+            "content_type": "video/mp4",
+            "size_bytes": size_bytes,
+        }
+    object_key = take_video_object_key(project_id=project["id"], shot_id=shot["id"], submission_id=submission["id"])
+    stored = storage.save_file(project_id=project["id"], source_path=path, object_key=object_key, content_type="video/mp4")
+    try:
+        path.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return {
+        "storage_backend": stored["backend"],
+        "local_path": None,
+        "remote_url": None,
+        "object_key": stored["object_key"],
+        "content_type": stored["content_type"],
+        "size_bytes": stored["size_bytes"],
+    }
+
+
 def compile_prompt(*, project_id: int, shot_id: int) -> dict:
     project = dict(project_repository.get_project(project_id))
     shots = {shot["id"]: shot for shot in list_shots(project_id)}
@@ -591,6 +629,24 @@ def _finalize_provider_success(
             },
         )
         return {"submission_id": submission_id, "status": "download_recovery_required", "error": "download_failed", "http_status": error_json.get("http_status")}
+    try:
+        storage_fields = _store_provider_video_artifact(
+            local_path=local_path,
+            provider_video_url=video_url,
+            project=project,
+            shot=shot,
+            submission=submission,
+        )
+    except StorageError as exc:
+        take_repository.update_generation_submission(
+            submission_id,
+            {
+                "submission_status": "artifact_upload_failed",
+                "error_json": _safe_storage_error(exc),
+                "response_json": sanitize(status_response),
+            },
+        )
+        return {"submission_id": submission_id, "status": "storage_recovery_required", "error": "artifact_upload_failed"}
     first_frame_path = qc_paths[0]
     last_frame_path = qc_paths[1]
     take, created = take_repository.get_or_create_take_for_submission(
@@ -600,8 +656,8 @@ def _finalize_provider_success(
             "prompt_version_id": prompt_version["id"],
             "seedance_task_id": task_id,
             "status": "completed",
-            "local_path": local_path,
-            "remote_url": video_url,
+            "local_path": storage_fields["local_path"],
+            "remote_url": storage_fields["remote_url"],
             "first_frame_path": first_frame_path,
             "last_frame_path": last_frame_path,
             "seed": random.randint(1, 999999),
@@ -622,6 +678,10 @@ def _finalize_provider_success(
             "retry_count": submission.get("retry_count") or 0,
             "last_poll_at": utc_now(),
             "generation_submission_id": submission_id,
+            "storage_backend": storage_fields["storage_backend"],
+            "object_key": storage_fields["object_key"],
+            "content_type": storage_fields["content_type"],
+            "size_bytes": storage_fields["size_bytes"],
         }
     )
     take_id = int(take["id"])

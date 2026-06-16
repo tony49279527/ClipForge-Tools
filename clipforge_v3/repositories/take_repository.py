@@ -22,8 +22,9 @@ def create_take(payload: dict[str, Any]) -> int:
             new_value, change_reason, source_asset_ids_json, qc_frame_paths_json, selected_by_user,
             selected_at, uncontrolled_revision, deleted_local_file, restored_from_take_id, review_summary_json,
             idempotency_key, submission_status, provider_task_id, provider_request_hash, submission_started_at,
-            submission_completed_at, retry_count, last_poll_at, generation_submission_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            submission_completed_at, retry_count, last_poll_at, generation_submission_id, storage_backend,
+            object_key, content_type, size_bytes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload["shot_id"],
@@ -63,6 +64,10 @@ def create_take(payload: dict[str, Any]) -> int:
             payload.get("retry_count", 0),
             payload.get("last_poll_at"),
             payload.get("generation_submission_id"),
+            payload.get("storage_backend", "local"),
+            payload.get("object_key"),
+            payload.get("content_type"),
+            payload.get("size_bytes"),
         ),
     )
     take_id = int(cur.lastrowid)

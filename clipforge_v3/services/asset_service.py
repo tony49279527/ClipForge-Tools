@@ -67,7 +67,25 @@ def audit_asset(*, file_path: Path, primary_role: str, project_assets: list[dict
     )
 
 
-def create_asset(*, project_id: int, file_path: Path, original_filename: str, primary_role: str, secondary_role: str | None, must_transfer: list[str], must_not_transfer: list[str], applies_to_shots: list[str], is_identity_anchor: bool, user_approved: bool, mime_type: str = "image/png", storage_backend: str = "local", access_url: str | None = None) -> dict:
+def create_asset(
+    *,
+    project_id: int,
+    file_path: Path,
+    original_filename: str,
+    primary_role: str,
+    secondary_role: str | None,
+    must_transfer: list[str],
+    must_not_transfer: list[str],
+    applies_to_shots: list[str],
+    is_identity_anchor: bool,
+    user_approved: bool,
+    mime_type: str = "image/png",
+    storage_backend: str = "local",
+    access_url: str | None = None,
+    object_key: str | None = None,
+    content_type: str | None = None,
+    size_bytes: int | None = None,
+) -> dict:
     existing_assets = list_assets(project_id)
     report = audit_asset(file_path=file_path, primary_role=primary_role, project_assets=existing_assets, mime_type=mime_type)
     asset_type = "image"
@@ -98,6 +116,7 @@ def create_asset(*, project_id: int, file_path: Path, original_filename: str, pr
             "file_size_bytes": report.file_size_bytes,
             "storage_backend": storage_backend,
             "access_url": access_url,
+            "object_key": object_key,
         },
         audit_report=report,
     )
@@ -107,6 +126,9 @@ def create_asset(*, project_id: int, file_path: Path, original_filename: str, pr
             "audit_report_json": asset.audit_report.model_dump(),
             "storage_backend": storage_backend,
             "access_url": access_url,
+            "object_key": object_key,
+            "content_type": content_type or mime_type,
+            "size_bytes": size_bytes or report.file_size_bytes,
         }
     )
     created = asset_repository.get_asset(asset_id)
@@ -121,7 +143,26 @@ def delete_asset(asset_id: int) -> None:
     asset_repository.soft_delete_asset(asset_id)
 
 
-def replace_asset(*, old_asset_id: int, project_id: int, file_path: Path, original_filename: str, primary_role: str, secondary_role: str | None, must_transfer: list[str], must_not_transfer: list[str], applies_to_shots: list[str], is_identity_anchor: bool, user_approved: bool, mime_type: str, storage_backend: str, access_url: str | None) -> dict:
+def replace_asset(
+    *,
+    old_asset_id: int,
+    project_id: int,
+    file_path: Path,
+    original_filename: str,
+    primary_role: str,
+    secondary_role: str | None,
+    must_transfer: list[str],
+    must_not_transfer: list[str],
+    applies_to_shots: list[str],
+    is_identity_anchor: bool,
+    user_approved: bool,
+    mime_type: str,
+    storage_backend: str,
+    access_url: str | None,
+    object_key: str | None = None,
+    content_type: str | None = None,
+    size_bytes: int | None = None,
+) -> dict:
     created = create_asset(
         project_id=project_id,
         file_path=file_path,
@@ -136,6 +177,9 @@ def replace_asset(*, old_asset_id: int, project_id: int, file_path: Path, origin
         mime_type=mime_type,
         storage_backend=storage_backend,
         access_url=access_url,
+        object_key=object_key,
+        content_type=content_type,
+        size_bytes=size_bytes,
     )
     asset_repository.replace_asset(old_asset_id, created["id"])
     return created

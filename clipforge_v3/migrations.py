@@ -578,6 +578,25 @@ def _apply_v3_real_provider_state_machine_hardening() -> None:
     conn.close()
 
 
+def _apply_v3_object_storage_tables() -> None:
+    _ensure_column("v3_assets", "object_key", "TEXT")
+    _ensure_column("v3_assets", "content_type", "TEXT")
+    _ensure_column("v3_assets", "size_bytes", "INTEGER")
+    _ensure_column("v3_takes", "storage_backend", "TEXT DEFAULT 'local'")
+    _ensure_column("v3_takes", "object_key", "TEXT")
+    _ensure_column("v3_takes", "content_type", "TEXT")
+    _ensure_column("v3_takes", "size_bytes", "INTEGER")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE v3_assets SET storage_backend = 'local' WHERE storage_backend IS NULL OR storage_backend = ''")
+    cur.execute("UPDATE v3_assets SET content_type = mime_type WHERE content_type IS NULL AND mime_type IS NOT NULL")
+    cur.execute("UPDATE v3_takes SET storage_backend = 'local' WHERE storage_backend IS NULL OR storage_backend = ''")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_v3_assets_storage_object ON v3_assets(storage_backend, object_key)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_v3_takes_storage_object ON v3_takes(storage_backend, object_key)")
+    conn.commit()
+    conn.close()
+
+
 MIGRATIONS: list[tuple[str, MigrationFn]] = [
     ("20260616_create_v3_core_tables", _apply_create_v3_core_tables),
     ("20260616_expand_v3_director_tables", _apply_expand_v3_director_tables),
@@ -586,6 +605,7 @@ MIGRATIONS: list[tuple[str, MigrationFn]] = [
     ("20260616_expand_v3_product_ops_tables", _apply_expand_v3_product_ops_tables),
     ("20260616_v3_real_provider_alpha_tables", _apply_v3_real_provider_alpha_tables),
     ("20260616_v3_real_provider_state_machine_hardening", _apply_v3_real_provider_state_machine_hardening),
+    ("20260617_v3_object_storage_tables", _apply_v3_object_storage_tables),
 ]
 
 

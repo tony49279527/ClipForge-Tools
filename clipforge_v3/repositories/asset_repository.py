@@ -19,8 +19,9 @@ def create_asset(payload: dict[str, Any]) -> int:
             project_id, asset_type, original_filename, local_path, remote_url, mime_type,
             primary_role, secondary_role, must_transfer_json, must_not_transfer_json,
             applies_to_shots_json, is_identity_anchor, user_approved, metadata_json,
-            audit_report_json, created_at, updated_at, storage_backend, access_url, replaced_by_asset_id, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            audit_report_json, created_at, updated_at, storage_backend, access_url, object_key,
+            content_type, size_bytes, replaced_by_asset_id, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload["project_id"],
@@ -42,6 +43,9 @@ def create_asset(payload: dict[str, Any]) -> int:
             now,
             payload.get("storage_backend", "local"),
             payload.get("access_url"),
+            payload.get("object_key"),
+            payload.get("content_type") or payload.get("mime_type"),
+            payload.get("size_bytes"),
             payload.get("replaced_by_asset_id"),
             payload.get("deleted_at"),
         ),

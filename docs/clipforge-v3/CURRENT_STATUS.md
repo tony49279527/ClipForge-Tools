@@ -3,7 +3,7 @@
 ## Current State
 
 - Current development branch: `clipforge-v3-real-provider-alpha`
-- Current branch HEAD at start of download recovery pass: `7df78643fe33b1c6fc9fd1c58ecf97e1ee5a2eeb`
+- Current branch HEAD at start of object storage pass: `0e89872d229e48086df62e44055f799c61af7fbf`
 - Last verified functional baseline: `b18b6974fd63f748fe37a140644f8b83c212efc8`
 - ClipForge 3.0 is in Real Provider Alpha.
 - Mock workflow is runnable.
@@ -22,6 +22,10 @@
 - Existing-task recovery now re-queries the provider task, preserves the runtime signed URL for download, and guarantees `NO NEW PROVIDER SUBMISSION`.
 - The recovered real task downloaded successfully, created one Take, and recorded one provider generation usage/cost event.
 - Real provider task count remains `1`.
+- Cloudflare R2 object storage support is implemented behind `V3_STORAGE_BACKEND=r2` with LocalStorage still the default.
+- Product image uploads can store `storage_backend`, `object_key`, `content_type`, `size_bytes`, and a stable HTTPS `access_url`.
+- Generated provider videos can be uploaded to R2 after download; Take rows can store `storage_backend`, `object_key`, `content_type`, and `size_bytes`.
+- R2 tests use mocked S3/R2 clients only. No real R2 validation has been executed.
 
 ## Verified Commands
 
@@ -37,6 +41,7 @@ Current recorded results:
 - V3: `84 passed`
 - V3 after download recovery hardening: `101 passed`
 - Real Provider Alpha: `37 passed`
+- Object storage targeted tests: `11 passed`
 - Legacy routes: `3 passed`
 
 ## Safe Payload Inspection
@@ -55,8 +60,8 @@ This inspector:
 ## Next Tasks
 
 1. Review the readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
-2. Start object storage integration for durable uploaded assets and generated videos.
-3. Add local-image auto-upload to object storage after the storage adapter is in place.
+2. Review the object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
+3. Use a dedicated test Bucket for one real R2 upload, read, and delete validation after explicit authorization.
 4. Add long-running worker soak tests.
 5. Do not deploy production before object storage is complete.
 
@@ -81,8 +86,8 @@ Automatic repeated tests are forbidden.
 
 ## Not Complete
 
-- Object storage
-- Local image auto-upload
+- Real R2 upload/read/delete validation
+- Private R2 video playback/download UI integration
 - Batch real-product validation
 - Long-running Worker tests
 - External user authentication

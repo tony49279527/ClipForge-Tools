@@ -12,7 +12,7 @@ Resolved in state-machine hardening commit:
 2. Provider success persistence is replay-safe. A generation submission can own only one Take through `v3_takes.generation_submission_id`, and video generation cost can be written only once through `v3_usage_events.event_key`.
 3. New real-provider submissions run `_ensure_budget()` before `reserve_generation_submission()`, and old `reserved` rows without `budget_approved_at` cannot be submitted automatically.
 
-The single next recommended task is now: **start object storage integration for durable public HTTPS assets and generated videos**.
+Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. The next task should be a controlled real R2 validation against a dedicated test bucket; it must not be combined with any Ark generation.
 
 ## 2. Current Repository Baseline
 
@@ -360,15 +360,18 @@ Download recovery finding from the first real task:
 
 Current state:
 
-- Asset uploads use `LocalStorage`.
-- Generated provider videos download to the local filesystem under `outputs/`.
-- Database rows store local paths and local output paths.
+- Asset uploads use `LocalStorage` by default.
+- `clipforge_v3/services/storage_service.py` now provides `LocalStorage` and `R2Storage`.
+- `V3_STORAGE_BACKEND=r2` uploads product images to R2, verifies the object through `head_object`, and stores `v3_assets.storage_backend`, `object_key`, `content_type`, `size_bytes`, and stable HTTPS `access_url`.
+- Generated provider videos still download from Ark to a temporary local file first. In R2 mode, `_store_provider_video_artifact()` uploads that file to R2, verifies the object, and stores `v3_takes.storage_backend`, `object_key`, `content_type`, and `size_bytes`.
+- Generated videos use service-layer signed GET URLs through `R2Storage.get_download_url()`; presigned URLs are not persisted.
 
-Production blockers caused by missing object storage:
+Remaining production blockers after object storage code integration:
 
-- Local uploaded reference images cannot become public HTTPS references for Ark.
-- Generated videos are not durable across Cloud Run restarts, machine loss, or horizontal scaling.
-- Absolute or resolved local paths are machine-dependent and unsuitable for multi-host production recovery.
+- No real R2 upload/read/delete validation has been executed.
+- UI playback for private R2 videos still needs a signed-download endpoint or equivalent integration.
+- Bucket lifecycle, retention, and cleanup policy are not automated.
+- External authorization for private generated-video access is not implemented.
 
 Minimal object storage options:
 
@@ -378,12 +381,14 @@ Minimal object storage options:
 | AWS S3 | Most mature SDK/docs, native signed URLs, broad ecosystem | Egress cost, more infrastructure overhead for a small alpha | Strong but heavier |
 | Backblaze B2 / other S3-compatible storage | Lower cost than S3, S3-compatible enough for a simple adapter | More edge-case compatibility testing than S3/R2 | Acceptable fallback |
 
-Recommended alpha path: **Cloudflare R2**. It matches the current code shape because the app only needs:
+Implemented alpha path: **Cloudflare R2**. It matches the current code shape because the app only needs:
 
 1. upload object
 2. store stable object key
 3. produce either a public HTTPS URL or a signed HTTPS URL that Ark can fetch
 4. keep the same S3-style adapter abstraction for future portability
+
+Detailed design and operator setup notes: `docs/clipforge-v3/OBJECT_STORAGE.md`.
 
 ## 10. Test Coverage Map
 
@@ -394,6 +399,7 @@ Current mapping by file:
 - `test_productization.py` (7): UI surfaces, readiness secrecy, storage rejection, traversal blocking, workflow smoke
 - `test_prompt_compiler.py` (11): prompt limits, templates, conflict detection, payload resolution field, error redaction
 - `test_provider_and_preflight.py` (5): fail-open/fail-closed policy and provider capability checks
+- `test_object_storage.py` (11): R2 configuration, key safety, mocked uploads, provider artifact upload recovery, signed URL generation, migration repeatability
 - `test_real_provider_alpha.py` (37): paid confirmation, idempotency, HTTPS reference URLs, unknown state, worker polling reuse, crash replay, budget ordering, database constraints, download recovery, inspector safety
 - `test_v3_routes.py` (9): V3 routing, migrations, project creation, invalidation behavior
 - `test_v3_schemas.py` (14): schema validation and planner helper behavior
@@ -408,10 +414,10 @@ High-priority gaps resolved in state-machine hardening commit:
 
 Remaining high-priority missing tests:
 
-1. Successful local file serving through `/v3/storage/local/...` needs a positive-path test; current route references `storage.base_dir`, but `LocalStorage` does not define it.
+1. Successful local file serving through `/v3/storage/local/...` still needs a positive-path route test; `LocalStorage.base_dir` now exists.
 2. Provider reconciliation command for `unknown_submission_state` is not implemented or tested.
 3. Real provider download recovery has one successful live example, but URL lifetime behavior still needs longer-window evidence.
-4. Object storage upload/download behavior is not implemented or tested.
+4. Object storage is covered by mock tests, but real R2 behavior is not yet validated.
 5. Long-running worker soak behavior is not covered.
 
 Medium-priority missing tests:
@@ -485,29 +491,29 @@ Remaining high-risk gaps:
 
 1. No operator reconciliation workflow exists yet for `unknown_submission_state`.
 2. Only one real Ark task has been validated; broader product and provider-state coverage is still missing.
-3. Local-only storage still blocks production-grade asset URLs and generated video durability.
+3. R2 code is implemented but not validated against a real Cloudflare test bucket.
+4. Private R2 generated-video playback is not yet wired into the UI.
 
 ## 15. Recommended Development Order
 
-1. Implement object storage and public HTTPS asset URLs
-2. Add local-image auto-upload to object storage
-3. Persist generated videos to object storage after download
-4. Implement operator reconciliation for `unknown_submission_state`
-5. Perform long-running worker soak tests
-6. Expand real-product validation batch coverage
-7. Add external authentication/authorization
-8. Prepare production deployment
+1. Validate R2 upload, read, presigned download, and delete against a dedicated test bucket
+2. Add UI integration for private R2 generated-video playback/download
+3. Implement operator reconciliation for `unknown_submission_state`
+4. Perform long-running worker soak tests
+5. Expand real-product validation batch coverage
+6. Add external authentication/authorization
+7. Prepare production deployment
 
 ## 16. Single Next Recommended Task
 
-**Start object storage integration for durable public HTTPS assets and generated videos.**
+**Use a dedicated test bucket to validate real R2 upload, read, signed download, and delete.**
 
 Scope of that task:
 
-- add a minimal object storage adapter, preferably S3-compatible with Cloudflare R2 as the alpha target
-- upload local product reference images and store stable object keys plus public or signed HTTPS URLs
-- upload recovered/generated videos after local download
-- keep local development compatible with `LocalStorage`
-- ensure no provider resubmission is introduced by storage retries
+- use explicit R2 credentials supplied through environment/secret storage, not chat
+- validate one product-image object upload and public HTTPS read
+- validate one generated-video style object upload and presigned GET
+- validate delete/cleanup on the dedicated test bucket
+- verify no Ark/Seedance submit path is invoked
 
-That is the highest-leverage next step because the first real provider task has proven submit, polling, download recovery, Take creation, and usage recording, while local-only files still block production durability.
+That is the highest-leverage next step because storage code is now covered by mocks, while production confidence depends on real R2 endpoint behavior, bucket policy, public URL configuration, and signed URL playback semantics.

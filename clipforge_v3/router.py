@@ -261,6 +261,9 @@ def v3_upload_asset(
         mime_type=stored["mime_type"],
         storage_backend=stored["backend"],
         access_url=stored["access_url"],
+        object_key=stored.get("object_key"),
+        content_type=stored.get("content_type"),
+        size_bytes=stored.get("size_bytes"),
     )
     log_event(stage="asset_upload", status="succeeded", project_id=project_id, message=f"Asset uploaded with role {primary_role}.")
     return RedirectResponse(url=f"/v3/projects/{project_id}", status_code=303)
@@ -307,6 +310,9 @@ def v3_replace_asset(
         mime_type=stored["mime_type"],
         storage_backend=stored["backend"],
         access_url=stored["access_url"],
+        object_key=stored.get("object_key"),
+        content_type=stored.get("content_type"),
+        size_bytes=stored.get("size_bytes"),
     )
     log_event(stage="asset_replace", status="succeeded", project_id=project_id, message=f"Asset {asset_id} replaced with history retained.")
     return RedirectResponse(url=f"/v3/projects/{project_id}", status_code=303)

@@ -3,7 +3,8 @@
 ## Current State
 
 - Current development branch: `clipforge-v3-real-provider-alpha`
-- Current baseline commit: `b18b6974fd63f748fe37a140644f8b83c212efc8`
+- Current branch HEAD: `30d1c6351e1f43d9da15c8b2c45b91bd8b108bfc`
+- Last verified functional baseline: `b18b6974fd63f748fe37a140644f8b83c212efc8`
 - ClipForge 3.0 is in Real Provider Alpha.
 - Mock workflow is runnable.
 - Ark Provider is wired.
@@ -46,10 +47,12 @@ This inspector:
 
 1. Use a real public product image to run Payload Inspector.
 2. Manually inspect the final Ark Payload format.
-3. Run one 5-second, 720p, single-shot real paid test.
-4. Check task ID, polling, download, Take, and cost records.
-5. Consider object storage only after the single-shot test succeeds.
-6. Do not deploy production before object storage is complete.
+3. Review the readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
+4. Harden submission-state safety before the first paid real-provider test.
+5. Run one 5-second, 720p, single-shot real paid test only after that hardening passes.
+6. Check task ID, polling, download, Take, and cost records.
+7. Consider object storage only after the single-shot test succeeds.
+8. Do not deploy production before object storage is complete.
 
 ## Real Paid Test Protection
 

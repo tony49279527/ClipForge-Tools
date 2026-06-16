@@ -22,8 +22,8 @@ def create_take(payload: dict[str, Any]) -> int:
             new_value, change_reason, source_asset_ids_json, qc_frame_paths_json, selected_by_user,
             selected_at, uncontrolled_revision, deleted_local_file, restored_from_take_id, review_summary_json,
             idempotency_key, submission_status, provider_task_id, provider_request_hash, submission_started_at,
-            submission_completed_at, retry_count, last_poll_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            submission_completed_at, retry_count, last_poll_at, generation_submission_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload["shot_id"],
@@ -62,6 +62,7 @@ def create_take(payload: dict[str, Any]) -> int:
             payload.get("submission_completed_at"),
             payload.get("retry_count", 0),
             payload.get("last_poll_at"),
+            payload.get("generation_submission_id"),
         ),
     )
     take_id = int(cur.lastrowid)
@@ -109,6 +110,36 @@ def get_take(take_id: int):
     return row
 
 
+def get_take_by_generation_submission_id(submission_id: int):
+    ensure_v3_schema()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM v3_takes WHERE generation_submission_id = ?", (submission_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def get_or_create_take_for_submission(payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    submission_id = payload.get("generation_submission_id")
+    if not submission_id:
+        take_id = create_take(payload)
+        row = get_take(take_id)
+        return dict(row), True
+    existing = get_take_by_generation_submission_id(int(submission_id))
+    if existing:
+        return dict(existing), False
+    try:
+        take_id = create_take(payload)
+    except sqlite3.IntegrityError:
+        existing = get_take_by_generation_submission_id(int(submission_id))
+        if existing:
+            return dict(existing), False
+        raise
+    row = get_take(take_id)
+    return dict(row), True
+
+
 def update_take(take_id: int, fields: dict[str, Any]) -> None:
     if not fields:
         return
@@ -138,8 +169,8 @@ def reserve_generation_submission(payload: dict[str, Any]) -> tuple[dict[str, An
             INSERT INTO v3_generation_submissions (
                 project_id, shot_id, prompt_version_id, generation_tier, provider, idempotency_key,
                 provider_request_hash, submission_status, paid_confirmed, confirmation_token,
-                request_payload_json, response_json, error_json, retry_count, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                request_payload_json, response_json, error_json, retry_count, budget_approved_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload["project_id"],
@@ -156,6 +187,7 @@ def reserve_generation_submission(payload: dict[str, Any]) -> tuple[dict[str, An
                 json.dumps(payload.get("response_json", {}), ensure_ascii=False),
                 json.dumps(payload.get("error_json", {}), ensure_ascii=False),
                 payload.get("retry_count", 0),
+                payload.get("budget_approved_at"),
                 now,
                 now,
             ),
@@ -218,6 +250,30 @@ def update_generation_submission(submission_id: int, fields: dict[str, Any]) -> 
     cur.execute(f"UPDATE v3_generation_submissions SET {assignments} WHERE id = ?", values)
     conn.commit()
     conn.close()
+
+
+def claim_generation_submission_for_submit(submission_id: int) -> bool:
+    ensure_v3_schema()
+    now = utc_now()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE v3_generation_submissions
+        SET submission_status = 'submitting',
+            submission_started_at = COALESCE(submission_started_at, ?),
+            updated_at = ?
+        WHERE id = ?
+          AND provider_task_id IS NULL
+          AND budget_approved_at IS NOT NULL
+          AND submission_status IN ('reserved', 'queued')
+        """,
+        (now, now, submission_id),
+    )
+    claimed = cur.rowcount == 1
+    conn.commit()
+    conn.close()
+    return claimed
 
 
 def _decode_submission(row: dict[str, Any]) -> dict[str, Any]:

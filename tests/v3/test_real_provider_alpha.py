@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib
 import importlib.util
 from pathlib import Path
+import sqlite3
 import requests
+import pytest
 
 
 def _create_project(client, payload: dict) -> int:
@@ -111,6 +113,40 @@ def _load_inspector_module():
     assert spec.loader
     spec.loader.exec_module(module)
     return module
+
+
+def _ark_confirmation(generation, *, project_id: int, shot: dict, prompt: dict) -> dict:
+    return generation.build_paid_confirmation(project_id=project_id, shot_id=shot["id"], prompt_version_id=prompt["id"], tier="draft")
+
+
+def _patch_successful_ark(generation, monkeypatch, fake: FakeArkProvider) -> None:
+    monkeypatch.setattr(generation, "get_provider", lambda: fake)
+    monkeypatch.setattr(generation, "_download_provider_video", lambda video_url, project_id, shot, take_number: generation._build_mock_video(project_id, shot, take_number))
+
+
+def _count_rows(db_conn, table: str) -> int:
+    return db_conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()["count"]
+
+
+def _usage_count_for_submission(db_conn, submission_id: int) -> int:
+    return db_conn.execute(
+        "SELECT COUNT(*) AS count FROM v3_usage_events WHERE event_key = ?",
+        (f"provider_generation:{submission_id}",),
+    ).fetchone()["count"]
+
+
+def _submit_successful_real_generation(generation, db_conn, monkeypatch, *, client, buffing_wheel_payload, sample_image_file, fake=None):
+    fake = fake or FakeArkProvider()
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
+    monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
+    monkeypatch.setenv("V3_SYNC_PROVIDER_TASK_FOR_TESTS", "true")
+    confirmation = _ark_confirmation(generation, project_id=project_id, shot=shot, prompt=prompt)
+    _patch_successful_ark(generation, monkeypatch, fake)
+    result = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["confirmation_token"])
+    submission = db_conn.execute("SELECT * FROM v3_generation_submissions").fetchone()
+    return project_id, shot, prompt, fake, result, submission
 
 
 def test_paid_confirmation_required(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
@@ -277,6 +313,14 @@ def test_timeout_enters_unknown_submission_state(client, db_conn, buffing_wheel_
     assert row["submission_status"] == "unknown_submission_state"
     assert row["provider_task_id"] is None
     assert fake.submit_calls == 1
+    retry = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["confirmation_token"])
+    assert retry["task_result"]["manual_reconciliation_required"] is True
+    assert retry["task_result"]["auto_retry_disabled"] is True
+    assert fake.submit_calls == 1
+    submission_id = db_conn.execute("SELECT id FROM v3_generation_submissions").fetchone()["id"]
+    worker_retry = generation.process_generation_submission(submission_id)
+    assert worker_retry["manual_reconciliation_required"] is True
+    assert fake.submit_calls == 1
 
 
 def test_worker_retry_with_saved_task_id_only_polls(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
@@ -312,6 +356,243 @@ def test_worker_retry_with_saved_task_id_only_polls(client, db_conn, buffing_whe
     assert result["status"] == "succeeded"
     assert fake.submit_calls == 0
     assert fake.status_calls >= 1
+    assert _count_rows(db_conn, "v3_takes") == 1
+    assert _usage_count_for_submission(db_conn, submission["id"]) == 1
+
+
+def test_unknown_submission_without_task_id_worker_retry_does_not_submit(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    fake = FakeArkProvider()
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
+    prompt_row = generation._decode_prompt_version(dict(importlib.import_module("clipforge_v3.repositories.shot_repository").get_prompt_version(prompt["id"])))
+    key = generation.build_idempotency_key(project_id=project_id, shot_id=shot["id"], prompt_version_id=prompt["id"], tier="draft", provider="ark", prompt_version=prompt_row)
+    repo = importlib.import_module("clipforge_v3.repositories.take_repository")
+    submission, _ = repo.reserve_generation_submission(
+        {
+            "project_id": project_id,
+            "shot_id": shot["id"],
+            "prompt_version_id": prompt["id"],
+            "generation_tier": "draft",
+            "provider": "ark",
+            "idempotency_key": key,
+            "provider_request_hash": "hash",
+            "submission_status": "unknown_submission_state",
+            "paid_confirmed": True,
+            "confirmation_token": key[:12],
+            "request_payload_json": prompt_row["provider_payload_json"],
+            "budget_approved_at": "2026-06-16T00:00:00Z",
+            "error_json": {"possible_charge": True},
+        }
+    )
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
+    monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
+    monkeypatch.setattr(generation, "get_provider", lambda: fake)
+    result = generation.process_generation_submission(submission["id"])
+    assert result["manual_reconciliation_required"] is True
+    assert fake.submit_calls == 0
+
+
+def test_budget_failure_does_not_create_submit_ready_reservation(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    fake = FakeArkProvider()
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
+    importlib.import_module("clipforge_v3.repositories.shot_repository").update_shot(shot["id"], {"max_draft_takes": 1})
+    importlib.import_module("clipforge_v3.repositories.take_repository").create_take(
+        {
+            "shot_id": shot["id"],
+            "take_number": 1,
+            "prompt_version_id": prompt["id"],
+            "status": "completed",
+            "local_path": "existing.mp4",
+            "generation_settings_json": {},
+            "tier": "draft",
+        }
+    )
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
+    monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
+    monkeypatch.setenv("V3_SYNC_PROVIDER_TASK_FOR_TESTS", "true")
+    monkeypatch.setattr(generation, "get_provider", lambda: fake)
+    confirmation = _ark_confirmation(generation, project_id=project_id, shot=shot, prompt=prompt)
+    with pytest.raises(ValueError, match="take budget exceeded"):
+        generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["confirmation_token"])
+    assert _count_rows(db_conn, "v3_generation_submissions") == 0
+    assert fake.submit_calls == 0
+
+
+def test_old_reserved_row_without_budget_approval_cannot_submit(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    fake = FakeArkProvider()
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
+    prompt_row = generation._decode_prompt_version(dict(importlib.import_module("clipforge_v3.repositories.shot_repository").get_prompt_version(prompt["id"])))
+    key = generation.build_idempotency_key(project_id=project_id, shot_id=shot["id"], prompt_version_id=prompt["id"], tier="draft", provider="ark", prompt_version=prompt_row)
+    repo = importlib.import_module("clipforge_v3.repositories.take_repository")
+    repo.reserve_generation_submission(
+        {
+            "project_id": project_id,
+            "shot_id": shot["id"],
+            "prompt_version_id": prompt["id"],
+            "generation_tier": "draft",
+            "provider": "ark",
+            "idempotency_key": key,
+            "provider_request_hash": "hash",
+            "submission_status": "reserved",
+            "paid_confirmed": True,
+            "confirmation_token": key[:12],
+            "request_payload_json": prompt_row["provider_payload_json"],
+        }
+    )
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
+    monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
+    monkeypatch.setenv("V3_SYNC_PROVIDER_TASK_FOR_TESTS", "true")
+    monkeypatch.setattr(generation, "get_provider", lambda: fake)
+    result = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=key[:12])
+    assert result["task_result"]["reason"] == "budget_approval_required"
+    assert fake.submit_calls == 0
+
+
+@pytest.mark.parametrize(
+    "crash_point",
+    ["after_download_before_take", "after_take_before_submission_link", "after_submission_link_before_usage", "after_usage_before_shot_update"],
+)
+def test_provider_success_replay_is_idempotent_after_worker_crash(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch, crash_point):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    repo = importlib.import_module("clipforge_v3.repositories.take_repository")
+    project_repo = importlib.import_module("clipforge_v3.repositories.project_repository")
+    shot_repo = importlib.import_module("clipforge_v3.repositories.shot_repository")
+    fake = FakeArkProvider()
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
+    monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
+    monkeypatch.setenv("V3_SYNC_PROVIDER_TASK_FOR_TESTS", "true")
+    confirmation = _ark_confirmation(generation, project_id=project_id, shot=shot, prompt=prompt)
+    _patch_successful_ark(generation, monkeypatch, fake)
+    crash_state = {"raised": False}
+    original_create_take = repo.create_take
+    original_update_submission = repo.update_generation_submission
+    original_create_usage = project_repo.create_usage_event
+    original_update_shot = shot_repo.update_shot
+
+    def maybe_crash_after_download(payload):
+        if crash_point == "after_download_before_take" and payload.get("generation_submission_id") and not crash_state["raised"]:
+            crash_state["raised"] = True
+            raise RuntimeError("simulated crash after download")
+        return original_create_take(payload)
+
+    def maybe_crash_after_take(submission_id, fields):
+        if crash_point == "after_take_before_submission_link" and fields.get("take_id") and not crash_state["raised"]:
+            crash_state["raised"] = True
+            raise RuntimeError("simulated crash after take")
+        return original_update_submission(submission_id, fields)
+
+    def maybe_crash_after_submission_link(payload):
+        if crash_point == "after_submission_link_before_usage" and payload.get("event_key", "").startswith("provider_generation:") and not crash_state["raised"]:
+            crash_state["raised"] = True
+            raise RuntimeError("simulated crash after submission link")
+        return original_create_usage(payload)
+
+    def maybe_crash_after_usage(shot_id, fields):
+        if crash_point == "after_usage_before_shot_update" and fields.get("status") == "generated" and not crash_state["raised"]:
+            crash_state["raised"] = True
+            raise RuntimeError("simulated crash after usage")
+        return original_update_shot(shot_id, fields)
+
+    monkeypatch.setattr(repo, "create_take", maybe_crash_after_download)
+    monkeypatch.setattr(repo, "update_generation_submission", maybe_crash_after_take)
+    monkeypatch.setattr(project_repo, "create_usage_event", maybe_crash_after_submission_link)
+    monkeypatch.setattr(shot_repo, "update_shot", maybe_crash_after_usage)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["confirmation_token"])
+    submission = db_conn.execute("SELECT * FROM v3_generation_submissions").fetchone()
+    assert submission["provider_task_id"] == "ark-task-123"
+    assert fake.submit_calls == 1
+    result = generation.process_generation_submission(submission["id"])
+    assert result["status"] == "succeeded"
+    assert fake.submit_calls == 1
+    assert _count_rows(db_conn, "v3_takes") == 1
+    assert _usage_count_for_submission(db_conn, submission["id"]) == 1
+    linked = db_conn.execute("SELECT take_id, submission_status FROM v3_generation_submissions WHERE id = ?", (submission["id"],)).fetchone()
+    take = db_conn.execute("SELECT id, generation_submission_id FROM v3_takes").fetchone()
+    assert linked["submission_status"] == "succeeded"
+    assert linked["take_id"] == take["id"]
+    assert take["generation_submission_id"] == submission["id"]
+
+
+def test_completed_provider_submission_can_be_replayed_without_duplicate_take_or_cost(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    _, _, _, fake, _result, submission = _submit_successful_real_generation(
+        generation,
+        db_conn,
+        monkeypatch,
+        client=client,
+        buffing_wheel_payload=buffing_wheel_payload,
+        sample_image_file=sample_image_file,
+    )
+    replay = generation.process_generation_submission(submission["id"])
+    assert replay["status"] == "succeeded"
+    assert fake.submit_calls == 1
+    assert _count_rows(db_conn, "v3_takes") == 1
+    assert _usage_count_for_submission(db_conn, submission["id"]) == 1
+
+
+def test_database_constraints_prevent_duplicate_take_and_usage_for_submission(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    repo = importlib.import_module("clipforge_v3.repositories.take_repository")
+    project_repo = importlib.import_module("clipforge_v3.repositories.project_repository")
+    _, shot, prompt, _fake, _result, submission = _submit_successful_real_generation(
+        generation,
+        db_conn,
+        monkeypatch,
+        client=client,
+        buffing_wheel_payload=buffing_wheel_payload,
+        sample_image_file=sample_image_file,
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        repo.create_take(
+            {
+                "shot_id": shot["id"],
+                "take_number": repo.get_next_take_number(shot["id"]),
+                "prompt_version_id": prompt["id"],
+                "status": "completed",
+                "local_path": "duplicate.mp4",
+                "generation_settings_json": {},
+                "tier": "draft",
+                "generation_submission_id": submission["id"],
+            }
+        )
+    existing_event_id = db_conn.execute(
+        "SELECT id FROM v3_usage_events WHERE event_key = ?",
+        (f"provider_generation:{submission['id']}",),
+    ).fetchone()["id"]
+    duplicate_event_id = project_repo.create_usage_event(
+        {
+            "project_id": submission["project_id"],
+            "shot_id": shot["id"],
+            "take_id": submission["take_id"],
+            "stage": "seedance_draft",
+            "provider": "ark",
+            "model": prompt["provider_payload_json"]["model"],
+            "duration": prompt["provider_payload_json"]["duration"],
+            "resolution": prompt["provider_payload_json"]["resolution"],
+            "estimated_cost": 1.23,
+            "status": "succeeded",
+            "raw_usage_json": {},
+            "event_key": f"provider_generation:{submission['id']}",
+            "source_type": "generation_submission",
+            "source_id": submission["id"],
+        }
+    )
+    assert duplicate_event_id == existing_event_id
+    assert _usage_count_for_submission(db_conn, submission["id"]) == 1
+
+
+def test_state_machine_hardening_migration_is_repeatable(app_env, db_conn):
+    migrations = importlib.import_module("clipforge_v3.migrations")
+    assert migrations.run_v3_migrations() == []
+    assert migrations.run_v3_migrations() == []
 
 
 def test_secret_not_in_submission_payload(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):

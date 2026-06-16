@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from typing import Any
 
 from db import get_conn, utc_now
@@ -215,33 +216,50 @@ def create_usage_event(payload: dict[str, Any]) -> int:
     ensure_v3_schema()
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO v3_usage_events (
-            project_id, shot_id, take_id, stage, provider, model, duration, resolution,
-            input_tokens, output_tokens, total_tokens, estimated_cost, status, raw_usage_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            payload["project_id"],
-            payload.get("shot_id"),
-            payload.get("take_id"),
-            payload["stage"],
-            payload["provider"],
-            payload["model"],
-            payload.get("duration"),
-            payload.get("resolution"),
-            payload.get("input_tokens", 0),
-            payload.get("output_tokens", 0),
-            payload.get("total_tokens", 0),
-            payload.get("estimated_cost", 0),
-            payload.get("status", "succeeded"),
-            json.dumps(payload.get("raw_usage_json", {}), ensure_ascii=False),
-            utc_now(),
-        ),
-    )
-    event_id = int(cur.lastrowid)
-    conn.commit()
+    event_key = payload.get("event_key")
+    try:
+        cur.execute(
+            """
+            INSERT INTO v3_usage_events (
+                project_id, shot_id, take_id, stage, provider, model, duration, resolution,
+                input_tokens, output_tokens, total_tokens, estimated_cost, status, raw_usage_json,
+                event_key, source_type, source_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["project_id"],
+                payload.get("shot_id"),
+                payload.get("take_id"),
+                payload["stage"],
+                payload["provider"],
+                payload["model"],
+                payload.get("duration"),
+                payload.get("resolution"),
+                payload.get("input_tokens", 0),
+                payload.get("output_tokens", 0),
+                payload.get("total_tokens", 0),
+                payload.get("estimated_cost", 0),
+                payload.get("status", "succeeded"),
+                json.dumps(payload.get("raw_usage_json", {}), ensure_ascii=False),
+                event_key,
+                payload.get("source_type"),
+                payload.get("source_id"),
+                utc_now(),
+            ),
+        )
+        event_id = int(cur.lastrowid)
+        conn.commit()
+    except sqlite3.IntegrityError:
+        if not event_key:
+            conn.close()
+            raise
+        conn.rollback()
+        cur.execute("SELECT id FROM v3_usage_events WHERE event_key = ?", (event_key,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            raise
+        event_id = int(row["id"])
     conn.close()
     return event_id
 

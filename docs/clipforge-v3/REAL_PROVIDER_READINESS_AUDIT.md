@@ -4,27 +4,29 @@
 
 ClipForge V3 has moved beyond the earlier Mock-only state. The current branch does have a real Ark submission path wired through `clipforge_v3/services/generation_service.py::submit_generation` and `::process_generation_submission`, and the provider adapter in `clipforge_v3/providers/seedance_ark.py` can build payloads, submit tasks, poll task state, extract a video URL, download the file, create a Take, and write a cost event.
 
-That said, the branch is not yet safe enough for a paid real-provider test without one more hardening pass. The biggest issue is not payload shape anymore. The biggest issue is state safety around duplicate billing and duplicate persistence:
+The state-machine hardening pass now resolves the three billing-safety findings that blocked the next staged provider check. The remaining blocker before a paid run is payload inspection with a real public HTTPS product image plus explicit human authorization for a single paid test. This does not make the branch production ready.
 
-1. `unknown_submission_state` is documented as "do not retry automatically", but the current code can re-enqueue and re-submit it because `submit_generation()` treats that state as queueable and `process_generation_submission()` will call `submit_task()` again if `provider_task_id` is still empty.
-2. The success path is not crash-safe. `process_generation_submission()` downloads the video, creates a Take, updates `v3_generation_submissions`, and writes a `v3_usage_events` row as separate writes with no transaction or replay guard. A crash between those steps can create duplicate Takes or duplicate cost rows on rerun.
-3. Idempotency reservation happens before budget enforcement. `take_repository.reserve_generation_submission()` commits a `reserved` row before `generation_service._ensure_budget()` runs. If the budget check fails after reservation, later retries can reuse the already-reserved row and skip the budget check.
+Resolved in state-machine hardening commit:
 
-Because of those gaps, the single next recommended task is not "run the paid test". The single next recommended task is: **make the real-provider submission state machine crash-safe and non-resubmitting before any paid Ark call is authorized**.
+1. `unknown_submission_state` no longer re-enqueues or calls `submit_task()` automatically. It returns `manual_reconciliation_required` with `possible_charge` and `auto_retry_disabled`.
+2. Provider success persistence is replay-safe. A generation submission can own only one Take through `v3_takes.generation_submission_id`, and video generation cost can be written only once through `v3_usage_events.event_key`.
+3. New real-provider submissions run `_ensure_budget()` before `reserve_generation_submission()`, and old `reserved` rows without `budget_approved_at` cannot be submitted automatically.
+
+The single next recommended task is now: **run the safe Payload Inspector with a real public HTTPS product image and manually inspect the Ark payload before authorizing any paid provider call**.
 
 ## 2. Current Repository Baseline
 
 - Repository: `tony49279527/ClipForge-Tools`
 - Branch: `clipforge-v3-real-provider-alpha`
-- Current branch HEAD after sync: `30d1c6351e1f43d9da15c8b2c45b91bd8b108bfc`
+- Current branch HEAD at start of state-machine hardening pass: `0edbaae4ab5c75961fa7e64ffe34843c3acd17e1`
 - Last verified functional baseline: `b18b6974fd63f748fe37a140644f8b83c212efc8`
-- Latest docs commit on branch: `30d1c63 docs(v3): add current development handoff status`
+- Latest docs commit before hardening: `0edbaae docs(v3): add real provider readiness audit`
 
 Current local verification in this audit run:
 
-- `python -m pytest -q tests/v3` -> `84 passed`
+- `python -m pytest -q tests/v3` -> `94 passed`
 - `python -m pytest -q tests/test_legacy_routes.py` -> `3 passed`
-- `python -m pytest --collect-only -q tests/v3` -> `84 tests collected`
+- `python -m pytest --collect-only -q tests/v3` -> `94 tests collected`
 - Warning runs with `-W default` still pass, but expose Python 3.9, LibreSSL, FastAPI `on_event`, and Starlette templating deprecations
 
 ## 3. V3 Architecture Map
@@ -151,14 +153,17 @@ Top-level modules used by the real-provider path:
   - exact confirmation token derived from the idempotency key prefix
 - DB writes for real mode:
   - `v3_preflight_checks` again, because `submit_generation()` reruns preflight
-  - `v3_generation_submissions` reservation row
+  - `_ensure_budget()` runs before new `v3_generation_submissions` reservation rows are created
+  - `v3_generation_submissions` reservation row with `budget_approved_at`
   - later `rq_job_id` update if queueing succeeds
 - Paid risk: yes
 - Tests:
   - `tests/v3/test_real_provider_alpha.py::test_paid_confirmation_required`
   - `::test_wrong_paid_confirmation_token_is_rejected`
   - `::test_idempotency_duplicate_click_reuses_submission`
-- Current usability: partially yes, but not safe enough yet for a paid run
+  - `::test_budget_failure_does_not_create_submit_ready_reservation`
+  - `::test_old_reserved_row_without_budget_approval_cannot_submit`
+- Current usability: guarded alpha path; real paid test still not executed
 
 ### 4.7 Provider submit, polling, download, Take, cost, and shot status
 
@@ -167,7 +172,8 @@ Top-level modules used by the real-provider path:
 - Core state machine: `generation_service.process_generation_submission()`
 - Submit:
   - `ArkSeedanceProvider.submit_task()`
-  - sets submission to `submitting`, then `submitted`
+  - only runs after `take_repository.claim_generation_submission_for_submit()` atomically moves `reserved` or `queued` rows with `budget_approved_at` to `submitting`
+  - worker retries from `unknown_submission_state` or uncertain `submitting` without `provider_task_id` return manual reconciliation instead of submitting again
 - Poll:
   - `ArkSeedanceProvider.get_task_status()`
   - loops until success/failure/cancel/poll timeout
@@ -175,15 +181,18 @@ Top-level modules used by the real-provider path:
   - `generation_service._download_provider_video()`
   - saves to `outputs/{project_id}/shots/{shot_id}/takes/{take_number}/video.mp4`
 - DB writes on success:
-  - `v3_takes`
+  - `v3_takes` with `generation_submission_id`
   - `v3_generation_submissions.take_id`
-  - `v3_usage_events`
+  - `v3_usage_events` with `event_key = provider_generation:{submission_id}`
   - `v3_shots.status = generated`
 - Paid risk: yes
 - Tests:
   - `tests/v3/test_real_provider_alpha.py::test_worker_retry_with_saved_task_id_only_polls`
   - `::test_timeout_enters_unknown_submission_state`
-- Current usability: functionally implemented, but not yet safe enough for billing-sensitive use
+  - `::test_provider_success_replay_is_idempotent_after_worker_crash`
+  - `::test_completed_provider_submission_can_be_replayed_without_duplicate_take_or_cost`
+  - `::test_database_constraints_prevent_duplicate_take_and_usage_for_submission`
+- Current usability: replay-safe for mocked provider success; real paid test still pending
 
 ## 5. Database and State Model Review
 
@@ -199,30 +208,35 @@ V3 schema is additive and lives in `clipforge_v3/migrations.py`. Relevant tables
 - `v3_usage_events`
 - `v3_operation_events`
 
-Observations:
+Observations after state-machine hardening:
 
 - There is no dedicated database table named "generation jobs". The durable state model is `v3_generation_submissions`; the queue job itself only lives in Redis/RQ and is referenced by `rq_job_id`.
-- Submission-to-take linkage is one-way and late-bound:
-  - reserve submission first
-  - later create Take
-  - later update submission with `take_id`
-- The only strong uniqueness protection for real paid work is `v3_generation_submissions.idempotency_key UNIQUE`.
+- Submission-to-take linkage is now protected in both directions:
+  - `v3_generation_submissions.take_id` stores the final Take ID
+  - `v3_takes.generation_submission_id` is unique when present
+- Real-provider idempotency protection now includes:
+  - `v3_generation_submissions.idempotency_key UNIQUE`
+  - `v3_generation_submissions.budget_approved_at`
+  - `v3_takes.generation_submission_id UNIQUE`
+  - `v3_usage_events.event_key UNIQUE`
 
 State-model risks:
 
 1. **Duplicate paid submit after unknown state**
-   - `submit_generation()` explicitly requeues submissions in `unknown_submission_state`.
-   - `process_generation_submission()` resubmits if `provider_task_id` is empty.
-   - Result: a timeout after provider acceptance can still be followed by a second paid `submit_task()` call.
+   - Resolved in state-machine hardening commit.
+   - `generation_service.requires_manual_reconciliation()` classifies `unknown_submission_state` as manual-only.
+   - `submit_generation()` and `process_generation_submission()` return a manual reconciliation result instead of queueing or calling `submit_task()`.
 
 2. **Duplicate Take or duplicate cost row after crash**
-   - Success handling is not atomic.
-   - `create_take()`, `update_generation_submission(take_id=...)`, and `create_usage_event()` are separate writes.
-   - A worker crash after video download but before all writes complete can replay the success path and create duplicates.
+   - Resolved in state-machine hardening commit.
+   - `take_repository.get_or_create_take_for_submission()` recovers existing Takes by `generation_submission_id`.
+   - `project_repository.create_usage_event()` returns the existing row for repeated `event_key` writes.
+   - Tests simulate crashes after download, Take creation, submission linking, and usage write.
 
 3. **Budget check ordering bug**
-   - Reservation is persisted before `_ensure_budget()`.
-   - A failed budget check can leave a `reserved` row that later skips budget re-validation because `created` becomes false on retry.
+   - Resolved in state-machine hardening commit.
+   - New submissions run `_ensure_budget()` before `reserve_generation_submission()`.
+   - Old `reserved` rows with no `budget_approved_at`, no `provider_task_id`, and no job are treated as manual reconciliation, not submit-ready work.
 
 4. **Status-history coverage is incomplete**
    - `v3_operation_events` exist, but generation worker transitions are not logged there.
@@ -313,9 +327,16 @@ That is acceptable for a web-triggered real submit flow, but it means the script
 - Poll interval: `V3_PROVIDER_POLL_INTERVAL_SECONDS`, default `5`
 - Poll timeout: `V3_PROVIDER_POLL_TIMEOUT_SECONDS`, default `900`
 
-Short-term behavior is covered. Long-run risks remain:
+State-machine hardening changes:
 
-- If a worker crashes after provider accept but before persisting `provider_task_id`, an RQ retry could submit again.
+- `can_enqueue_submission()`, `can_call_provider_submit()`, `can_poll_existing_task()`, `requires_manual_reconciliation()`, and `is_terminal_submission_state()` centralize submission-state decisions in `generation_service.py`.
+- `claim_generation_submission_for_submit()` atomically claims only `reserved` or `queued` rows with `budget_approved_at`.
+- `unknown_submission_state` and uncertain `submitting` without `provider_task_id` do not auto-retry; they require manual Ark console reconciliation.
+- Existing `provider_task_id` rows can be replayed through polling and download/finalization without calling `submit_task()` again.
+
+Long-run risks remain:
+
+- If a worker crashes after provider accept but before persisting `provider_task_id`, the row becomes manual-only rather than auto-retried; a future reconciliation command is still needed.
 - Poll errors do not back off beyond `min(poll_interval, 1.0)` sleep, which is fine for tests but not ideal for production.
 - Download retry semantics are not explicit.
 - There is no provider-side reconciliation command for `unknown_submission_state`.
@@ -358,17 +379,25 @@ Current mapping by file:
 - `test_productization.py` (7): UI surfaces, readiness secrecy, storage rejection, traversal blocking, workflow smoke
 - `test_prompt_compiler.py` (11): prompt limits, templates, conflict detection, payload resolution field, error redaction
 - `test_provider_and_preflight.py` (5): fail-open/fail-closed policy and provider capability checks
-- `test_real_provider_alpha.py` (20): paid confirmation, idempotency, HTTPS reference URLs, unknown state, worker polling reuse, inspector safety
+- `test_real_provider_alpha.py` (30): paid confirmation, idempotency, HTTPS reference URLs, unknown state, worker polling reuse, crash replay, budget ordering, database constraints, inspector safety
 - `test_v3_routes.py` (9): V3 routing, migrations, project creation, invalidation behavior
 - `test_v3_schemas.py` (14): schema validation and planner helper behavior
 
-High-priority missing tests:
+High-priority gaps resolved in state-machine hardening commit:
 
-1. Crash after `create_take()` but before submission update should not create a second Take on rerun.
-2. Crash after submission update but before `create_usage_event()` should not duplicate cost events.
-3. `unknown_submission_state` must never call `submit_task()` again unless an operator explicitly reconciles provider state first.
-4. Budget failure after submission reservation must not leave a reusable `reserved` row that bypasses budget checks.
-5. Successful local file serving through `/v3/storage/local/...` needs a positive-path test; current route references `storage.base_dir`, but `LocalStorage` does not define it.
+1. Crash after download before Take creation should not create duplicate Take/cost on rerun.
+2. Crash after Take creation but before submission update should not create a second Take on rerun.
+3. Crash after submission update but before `create_usage_event()` should not duplicate cost events.
+4. `unknown_submission_state` must never call `submit_task()` again unless an operator explicitly reconciles provider state first.
+5. Budget failure before reservation must not leave a reusable submit-ready row.
+
+Remaining high-priority missing tests:
+
+1. Successful local file serving through `/v3/storage/local/...` needs a positive-path test; current route references `storage.base_dir`, but `LocalStorage` does not define it.
+2. Provider reconciliation command for `unknown_submission_state` is not implemented or tested.
+3. Real Ark paid task status mapping still needs one manually authorized single-shot validation.
+4. Real provider download URL expiry and redownload recovery need live-provider evidence.
+5. Long-running worker soak behavior is not covered.
 
 Medium-priority missing tests:
 
@@ -431,18 +460,26 @@ Merge strategy recommendation:
 
 ## 14. High-Risk Gaps
 
-1. `unknown_submission_state` can still lead to a second paid submit.
-2. Paid success persistence is not atomic and can duplicate Take/cost writes after worker interruption.
-3. Budget enforcement occurs after submission reservation and can be bypassed on retry.
+Resolved in state-machine hardening commit:
+
+1. `unknown_submission_state` can no longer lead to a second automatic paid submit.
+2. Paid success persistence now has database-backed idempotency for Take and usage/cost writes.
+3. Budget enforcement now occurs before new submission reservation, and old unapproved reservations cannot submit automatically.
+
+Remaining high-risk gaps:
+
+1. No operator reconciliation workflow exists yet for `unknown_submission_state`.
+2. Real Ark task status, output URL, and usage response shape have not been validated with a paid task.
+3. Local-only storage still blocks production-grade asset URLs and generated video durability.
 
 ## 15. Recommended Development Order
 
-1. Harden submission state machine for `unknown_submission_state` and crash-safe success persistence
-2. Re-run Payload Inspector with a real public HTTPS image and inspect the exact Ark payload
-3. Run one manually authorized 5-second 720p paid test
-4. Verify polling, download, Take creation, usage event, and recovery behavior on the real provider
-5. Implement object storage and public HTTPS asset URLs
-6. Add local-image auto-upload to object storage
+1. Re-run Payload Inspector with a real public HTTPS image and inspect the exact Ark payload
+2. Run one manually authorized 5-second 720p paid test
+3. Verify polling, download, Take creation, usage event, and recovery behavior on the real provider
+4. Implement object storage and public HTTPS asset URLs
+5. Add local-image auto-upload to object storage
+6. Implement operator reconciliation for `unknown_submission_state`
 7. Perform long-running worker soak tests
 8. Expand real-product validation batch coverage
 9. Add external authentication/authorization
@@ -450,13 +487,13 @@ Merge strategy recommendation:
 
 ## 16. Single Next Recommended Task
 
-**Implement a paid-generation state-machine hardening pass before any real Ark test is authorized.**
+**Run the safe Payload Inspector with a real public HTTPS product image and manually inspect the Ark payload.**
 
 Scope of that task:
 
-- prevent any automatic re-submit from `unknown_submission_state`
-- make the success path idempotent after provider success and before/after download
-- move or repeat budget validation so a previously reserved row cannot bypass it
-- add tests for crash/replay and duplicate-write prevention
+- provide or choose a stable public HTTPS product image URL
+- run only `scripts/v3/inspect_real_seedance_payload.py`
+- verify prompt, `content[].image_url.url`, duration, resolution, ratio, and model fields
+- confirm no `submit_task()`, no `requests.post()`, no real task ID, and no cost
 
-That is the highest-leverage next step because it directly reduces the only failure mode that can both lose money and corrupt project state.
+That is the highest-leverage next step because the state-machine safety gate is now covered by automated tests, while the final payload shape still needs a real public image URL before a paid Ark call is justified.

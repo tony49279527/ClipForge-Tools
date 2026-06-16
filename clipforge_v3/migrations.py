@@ -517,6 +517,67 @@ def _apply_v3_real_provider_alpha_tables() -> None:
     conn.close()
 
 
+def _apply_v3_real_provider_state_machine_hardening() -> None:
+    _ensure_column("v3_generation_submissions", "budget_approved_at", "TEXT")
+    _ensure_column("v3_takes", "generation_submission_id", "INTEGER")
+    _ensure_column("v3_usage_events", "event_key", "TEXT")
+    _ensure_column("v3_usage_events", "source_type", "TEXT")
+    _ensure_column("v3_usage_events", "source_id", "INTEGER")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT generation_submission_id, COUNT(*) AS count
+        FROM v3_takes
+        WHERE generation_submission_id IS NOT NULL
+        GROUP BY generation_submission_id
+        HAVING COUNT(*) > 1
+        LIMIT 1
+        """
+    )
+    duplicate_take = cur.fetchone()
+    if duplicate_take:
+        conn.close()
+        raise RuntimeError(
+            "Cannot add unique v3_takes.generation_submission_id constraint; "
+            f"submission {duplicate_take['generation_submission_id']} already has {duplicate_take['count']} takes."
+        )
+    cur.execute(
+        """
+        SELECT event_key, COUNT(*) AS count
+        FROM v3_usage_events
+        WHERE event_key IS NOT NULL
+        GROUP BY event_key
+        HAVING COUNT(*) > 1
+        LIMIT 1
+        """
+    )
+    duplicate_usage = cur.fetchone()
+    if duplicate_usage:
+        conn.close()
+        raise RuntimeError(
+            "Cannot add unique v3_usage_events.event_key constraint; "
+            f"event key {duplicate_usage['event_key']} already has {duplicate_usage['count']} rows."
+        )
+    cur.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_v3_takes_generation_submission
+        ON v3_takes(generation_submission_id)
+        WHERE generation_submission_id IS NOT NULL
+        """
+    )
+    cur.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_v3_usage_events_event_key
+        ON v3_usage_events(event_key)
+        WHERE event_key IS NOT NULL
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_v3_usage_events_source ON v3_usage_events(source_type, source_id)")
+    conn.commit()
+    conn.close()
+
+
 MIGRATIONS: list[tuple[str, MigrationFn]] = [
     ("20260616_create_v3_core_tables", _apply_create_v3_core_tables),
     ("20260616_expand_v3_director_tables", _apply_expand_v3_director_tables),
@@ -524,6 +585,7 @@ MIGRATIONS: list[tuple[str, MigrationFn]] = [
     ("20260616_expand_v3_execution_tables", _apply_expand_v3_execution_tables),
     ("20260616_expand_v3_product_ops_tables", _apply_expand_v3_product_ops_tables),
     ("20260616_v3_real_provider_alpha_tables", _apply_v3_real_provider_alpha_tables),
+    ("20260616_v3_real_provider_state_machine_hardening", _apply_v3_real_provider_state_machine_hardening),
 ]
 
 

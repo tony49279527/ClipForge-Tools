@@ -44,7 +44,10 @@ from clipforge_v3.services.shot_service import list_shots
 OUTPUTS_DIR = Path(os.getenv("OUTPUTS_DIR", "outputs")).resolve()
 REAL_API_CONFIRM_TEXT = "I confirm this is a real paid Seedance generation."
 REAL_API_TERMINAL_CONFIRM = "I_UNDERSTAND_THIS_COSTS_MONEY"
-SUBMISSION_TERMINAL_STATES = {"succeeded", "failed", "cancelled", "unknown_submission_state"}
+SUBMISSION_TERMINAL_STATES = {"succeeded", "failed", "cancelled", "poll_timeout", "unknown_submission_state"}
+SUBMISSION_MANUAL_RECONCILIATION_STATES = {"unknown_submission_state"}
+SUBMISSION_PROVIDER_SUBMIT_STATES = {"reserved", "queued"}
+SUBMISSION_POLLABLE_STATES = {"submitted", "polling", "downloading"}
 
 
 def _decode_prompt_version(row: dict) -> dict:
@@ -73,6 +76,62 @@ def get_video_provider_mode() -> str:
 
 def real_api_enabled() -> bool:
     return os.getenv("V3_REAL_API_ENABLED", "false").strip().lower() == "true"
+
+
+def requires_manual_reconciliation(submission: dict) -> bool:
+    status = submission.get("submission_status")
+    if status in SUBMISSION_MANUAL_RECONCILIATION_STATES:
+        return True
+    return status == "submitting" and not submission.get("provider_task_id")
+
+
+def is_terminal_submission_state(submission: dict) -> bool:
+    return submission.get("submission_status") in SUBMISSION_TERMINAL_STATES
+
+
+def can_call_provider_submit(submission: dict) -> bool:
+    return (
+        not submission.get("provider_task_id")
+        and bool(submission.get("budget_approved_at"))
+        and submission.get("submission_status") in SUBMISSION_PROVIDER_SUBMIT_STATES
+    )
+
+
+def can_poll_existing_task(submission: dict) -> bool:
+    return bool(submission.get("provider_task_id")) and not is_terminal_submission_state(submission)
+
+
+def can_enqueue_submission(submission: dict) -> bool:
+    if requires_manual_reconciliation(submission):
+        return False
+    if submission.get("take_id") and submission.get("submission_status") == "succeeded":
+        return False
+    if can_poll_existing_task(submission):
+        return True
+    return can_call_provider_submit(submission)
+
+
+def _manual_reconciliation_response(submission: dict, *, reason: str = "manual_reconciliation_required") -> dict:
+    possible_charge = reason != "budget_approval_required"
+    message = (
+        "Submission is missing budget approval and cannot be submitted automatically."
+        if reason == "budget_approval_required"
+        else "Submission may already have produced a paid provider task. Automatic retry is disabled; inspect the Ark console and reconcile manually."
+    )
+    error_json = dict(submission.get("error_json") or {})
+    if error_json.get("code") != reason:
+        error_json = error_json | {"code": reason, "message": message, "possible_charge": possible_charge, "auto_retry_disabled": True}
+        take_repository.update_generation_submission(submission["id"], {"error_json": error_json})
+        submission = take_repository.get_generation_submission(submission["id"]) or submission
+    return {
+        "submission_id": submission["id"],
+        "status": submission.get("submission_status"),
+        "manual_reconciliation_required": True,
+        "possible_charge": possible_charge,
+        "auto_retry_disabled": True,
+        "reason": reason,
+        "message": message,
+    }
 
 
 def _canonical_json(payload: dict) -> str:
@@ -216,12 +275,13 @@ def _download_provider_video(video_url: str, project_id: int, shot: dict, take_n
     take_dir = OUTPUTS_DIR / str(project_id) / "shots" / shot["shot_id"] / "takes" / str(take_number)
     take_dir.mkdir(parents=True, exist_ok=True)
     video_path = take_dir / "video.mp4"
-    response = requests.get(video_url, timeout=(10, 180), stream=True)
-    response.raise_for_status()
-    with video_path.open("wb") as handle:
-        for chunk in response.iter_content(chunk_size=1024 * 1024):
-            if chunk:
-                handle.write(chunk)
+    if not video_path.exists() or video_path.stat().st_size <= 0:
+        response = requests.get(video_url, timeout=(10, 180), stream=True)
+        response.raise_for_status()
+        with video_path.open("wb") as handle:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    handle.write(chunk)
     qc_paths = _extract_frames(video_path)
     return str(video_path), qc_paths
 
@@ -380,6 +440,178 @@ def preflight(project_id: int, shot_id: int, prompt_version_id: int, tier: str) 
     return result
 
 
+def _provider_usage_event_key(submission_id: int) -> str:
+    return f"provider_generation:{submission_id}"
+
+
+def _ensure_provider_usage_event(
+    *,
+    submission: dict,
+    project: dict,
+    shot: dict,
+    prompt_version: dict,
+    provider,
+    take_id: int,
+    status_response: dict,
+) -> int:
+    return project_repository.create_usage_event(
+        {
+            "project_id": project["id"],
+            "shot_id": shot["id"],
+            "take_id": take_id,
+            "stage": f"seedance_{submission['generation_tier']}",
+            "provider": "ark",
+            "model": prompt_version["provider_payload_json"]["model"],
+            "duration": prompt_version["provider_payload_json"]["duration"],
+            "resolution": prompt_version["provider_payload_json"]["resolution"],
+            "estimated_cost": provider.estimate_cost(
+                duration=prompt_version["provider_payload_json"]["duration"],
+                resolution=prompt_version["provider_payload_json"]["resolution"],
+            ),
+            "status": "succeeded",
+            "raw_usage_json": sanitize(status_response),
+            "event_key": _provider_usage_event_key(submission["id"]),
+            "source_type": "generation_submission",
+            "source_id": submission["id"],
+        }
+    )
+
+
+def _finalize_provider_success(
+    *,
+    submission_id: int,
+    project: dict,
+    shot: dict,
+    prompt_version: dict,
+    provider,
+    status_response: dict,
+) -> dict:
+    submission = take_repository.get_generation_submission(submission_id)
+    if not submission:
+        raise KeyError(f"Generation submission {submission_id} not found")
+    extracted = provider.extract_result(status_response)
+    task_id = submission.get("provider_task_id") or extracted.get("task_id")
+    video_url = extracted.get("video_url")
+    existing_take = None
+    if submission.get("take_id"):
+        existing_take = take_repository.get_take(int(submission["take_id"]))
+    if not existing_take:
+        existing_take = take_repository.get_take_by_generation_submission_id(submission_id)
+    if existing_take:
+        take = dict(existing_take)
+        take_id = int(take["id"])
+        _ensure_provider_usage_event(
+            submission=submission,
+            project=project,
+            shot=shot,
+            prompt_version=prompt_version,
+            provider=provider,
+            take_id=take_id,
+            status_response=status_response or submission.get("response_json") or {},
+        )
+        shot_repository.update_shot(shot["id"], {"status": "generated"})
+        take_repository.update_generation_submission(
+            submission_id,
+            {
+                "submission_status": "succeeded",
+                "take_id": take_id,
+                "submission_completed_at": submission.get("submission_completed_at") or utc_now(),
+                "response_json": sanitize(status_response or submission.get("response_json") or {}),
+            },
+        )
+        return {"submission_id": submission_id, "take_id": take_id, "status": "succeeded", "reused": True}
+    if not video_url:
+        take_repository.update_generation_submission(
+            submission_id,
+            {
+                "submission_status": "failed",
+                "error_json": {"code": "missing_video_url", "message": "Provider succeeded but no video_url was returned."},
+                "submission_completed_at": utc_now(),
+            },
+        )
+        return {"submission_id": submission_id, "status": "failed", "error": "missing_video_url"}
+    take_repository.update_generation_submission(submission_id, {"submission_status": "downloading", "response_json": sanitize(status_response)})
+    take_number = take_repository.get_next_take_number(shot["id"])
+    local_path, qc_paths = _download_provider_video(video_url, project["id"], shot, take_number)
+    first_frame_path = qc_paths[0]
+    last_frame_path = qc_paths[1]
+    take, created = take_repository.get_or_create_take_for_submission(
+        {
+            "shot_id": shot["id"],
+            "take_number": take_number,
+            "prompt_version_id": prompt_version["id"],
+            "seedance_task_id": task_id,
+            "status": "completed",
+            "local_path": local_path,
+            "remote_url": video_url,
+            "first_frame_path": first_frame_path,
+            "last_frame_path": last_frame_path,
+            "seed": random.randint(1, 999999),
+            "generation_settings_json": {"tier": submission["generation_tier"], "provider_payload": sanitize(prompt_version["provider_payload_json"]), "provider": "ark"},
+            "estimated_cost": provider.estimate_cost(
+                duration=prompt_version["provider_payload_json"]["duration"],
+                resolution=prompt_version["provider_payload_json"]["resolution"],
+            ),
+            "tier": submission["generation_tier"],
+            "source_asset_ids_json": [item.get("asset_id") for item in prompt_version["role_map_json"].get("assets", []) if item.get("asset_id")],
+            "qc_frame_paths_json": qc_paths,
+            "idempotency_key": submission["idempotency_key"],
+            "submission_status": "succeeded",
+            "provider_task_id": task_id,
+            "provider_request_hash": submission["provider_request_hash"],
+            "submission_started_at": submission.get("submission_started_at"),
+            "submission_completed_at": utc_now(),
+            "retry_count": submission.get("retry_count") or 0,
+            "last_poll_at": utc_now(),
+            "generation_submission_id": submission_id,
+        }
+    )
+    take_id = int(take["id"])
+    if created:
+        record_continuity_from_take(project_id=project["id"], shot=shot, take_id=take_id, take_row={"first_frame_path": first_frame_path, "last_frame_path": last_frame_path})
+    take_repository.update_generation_submission(
+        submission_id,
+        {"submission_status": "succeeded", "take_id": take_id, "submission_completed_at": utc_now(), "response_json": sanitize(status_response)},
+    )
+    _ensure_provider_usage_event(
+        submission=submission,
+        project=project,
+        shot=shot,
+        prompt_version=prompt_version,
+        provider=provider,
+        take_id=take_id,
+        status_response=status_response,
+    )
+    shot_repository.update_shot(shot["id"], {"status": "generated"})
+    return {"submission_id": submission_id, "take_id": take_id, "status": "succeeded"}
+
+
+def _run_or_enqueue_provider_submission(submission: dict, *, idempotency_key: str, preflight_result: dict, created: bool) -> dict:
+    if submission.get("take_id") and submission.get("submission_status") == "succeeded":
+        task_result = process_generation_submission(submission["id"])
+        return {"take_id": task_result.get("take_id"), "submission": take_repository.get_generation_submission(submission["id"]), "preflight": preflight_result, "reused": True, "task_result": task_result}
+    if requires_manual_reconciliation(submission):
+        task_result = _manual_reconciliation_response(submission)
+        return {"take_id": submission.get("take_id"), "submission": take_repository.get_generation_submission(submission["id"]), "preflight": preflight_result, "queued": False, "created": created, "task_result": task_result}
+    if not can_enqueue_submission(submission):
+        reason = "budget_approval_required" if not submission.get("budget_approved_at") and not submission.get("provider_task_id") else "manual_reconciliation_required"
+        task_result = _manual_reconciliation_response(submission, reason=reason)
+        return {"take_id": submission.get("take_id"), "submission": take_repository.get_generation_submission(submission["id"]), "preflight": preflight_result, "queued": False, "created": created, "task_result": task_result}
+    if os.getenv("V3_SYNC_PROVIDER_TASK_FOR_TESTS", "false").lower() == "true":
+        task_result = process_generation_submission(submission["id"])
+        return {"take_id": task_result.get("take_id"), "submission": take_repository.get_generation_submission(submission["id"]), "preflight": preflight_result, "queued": False, "created": created, "task_result": task_result}
+    try:
+        from task_queue import enqueue_v3_generation_job
+
+        take_repository.update_generation_submission(submission["id"], {"submission_status": "queued"})
+        job = enqueue_v3_generation_job(submission["id"], idempotency_key)
+        take_repository.update_generation_submission(submission["id"], {"rq_job_id": job.id})
+    except Exception as exc:
+        take_repository.update_generation_submission(submission["id"], {"error_json": {"queue_error": str(exc)}})
+        raise
+    return {"take_id": submission.get("take_id"), "submission": take_repository.get_generation_submission(submission["id"]), "preflight": preflight_result, "queued": True, "created": created}
+
+
 def submit_generation(
     project_id: int,
     shot_id: int,
@@ -421,6 +653,10 @@ def submit_generation(
         if not paid_confirmed or paid_confirmation_token != expected_token:
             raise ValueError("Paid generation confirmation is required for real Ark submission.")
         request_hash = _sha256_text(_canonical_json(sanitize(prompt_version["provider_payload_json"])))
+        existing_submission = take_repository.get_generation_submission_by_key(idempotency_key)
+        if existing_submission:
+            return _run_or_enqueue_provider_submission(existing_submission, idempotency_key=idempotency_key, preflight_result=preflight_result, created=False)
+        _ensure_budget(project, shot, tier)
         submission, created = take_repository.reserve_generation_submission(
             {
                 "project_id": project_id,
@@ -434,25 +670,10 @@ def submit_generation(
                 "paid_confirmed": True,
                 "confirmation_token": expected_token,
                 "request_payload_json": sanitize(prompt_version["provider_payload_json"]),
+                "budget_approved_at": utc_now(),
             }
         )
-        if submission.get("take_id") and submission["submission_status"] == "succeeded":
-            return {"take_id": submission["take_id"], "submission": submission, "preflight": preflight_result, "reused": True}
-        if created:
-            _ensure_budget(project, shot, tier)
-        if submission.get("provider_task_id") or submission["submission_status"] in {"reserved", "submitting", "submitted", "polling", "unknown_submission_state"}:
-            if os.getenv("V3_SYNC_PROVIDER_TASK_FOR_TESTS", "false").lower() == "true":
-                task_result = process_generation_submission(submission["id"])
-                return {"take_id": task_result.get("take_id"), "submission": take_repository.get_generation_submission(submission["id"]), "preflight": preflight_result, "queued": False, "created": created, "task_result": task_result}
-            try:
-                from task_queue import enqueue_v3_generation_job
-
-                job = enqueue_v3_generation_job(submission["id"], idempotency_key)
-                take_repository.update_generation_submission(submission["id"], {"rq_job_id": job.id})
-            except Exception as exc:
-                take_repository.update_generation_submission(submission["id"], {"error_json": {"queue_error": str(exc)}})
-                raise
-            return {"take_id": submission.get("take_id"), "submission": take_repository.get_generation_submission(submission["id"]), "preflight": preflight_result, "queued": True, "created": created}
+        return _run_or_enqueue_provider_submission(submission, idempotency_key=idempotency_key, preflight_result=preflight_result, created=created)
 
     _ensure_budget(project, shot, tier)
     take_number = take_repository.get_next_take_number(shot_id)
@@ -519,14 +740,36 @@ def process_generation_submission(submission_id: int) -> dict:
     submission = take_repository.get_generation_submission(submission_id)
     if not submission:
         raise KeyError(f"Generation submission {submission_id} not found")
-    if submission.get("take_id") and submission["submission_status"] == "succeeded":
-        return {"submission_id": submission_id, "take_id": submission["take_id"], "status": "succeeded", "reused": True}
     project = dict(project_repository.get_project(submission["project_id"]))
     shot = next(item for item in list_shots(submission["project_id"]) if item["id"] == submission["shot_id"])
     prompt_version = _decode_prompt_version(dict(shot_repository.get_prompt_version(submission["prompt_version_id"])))
     provider = get_provider()
+    if submission.get("take_id") and submission["submission_status"] == "succeeded":
+        return _finalize_provider_success(
+            submission_id=submission_id,
+            project=project,
+            shot=shot,
+            prompt_version=prompt_version,
+            provider=provider,
+            status_response=submission.get("response_json") or {},
+        )
+    if requires_manual_reconciliation(submission):
+        return _manual_reconciliation_response(submission)
+    should_call_submit = False
     if not submission.get("provider_task_id"):
-        take_repository.update_generation_submission(submission_id, {"submission_status": "submitting", "submission_started_at": submission.get("submission_started_at") or utc_now()})
+        if not can_call_provider_submit(submission):
+            reason = "budget_approval_required" if not submission.get("budget_approved_at") else "manual_reconciliation_required"
+            return _manual_reconciliation_response(submission, reason=reason)
+        if not take_repository.claim_generation_submission_for_submit(submission_id):
+            refreshed = take_repository.get_generation_submission(submission_id)
+            if refreshed and can_poll_existing_task(refreshed):
+                submission = refreshed
+            else:
+                return _manual_reconciliation_response(refreshed or submission)
+        else:
+            submission = take_repository.get_generation_submission(submission_id) or submission
+            should_call_submit = True
+    if should_call_submit:
         try:
             provider_result = provider.submit_task(prompt_version["provider_payload_json"])
         except (requests.Timeout, requests.ConnectionError) as exc:
@@ -557,6 +800,10 @@ def process_generation_submission(submission_id: int) -> dict:
             {"submission_status": "submitted", "provider_task_id": task_id, "response_json": sanitize(provider_result.get("response", {}))},
         )
         submission = take_repository.get_generation_submission(submission_id)
+    if requires_manual_reconciliation(submission):
+        return _manual_reconciliation_response(submission)
+    if not can_poll_existing_task(submission):
+        return _manual_reconciliation_response(submission)
     task_id = submission.get("provider_task_id")
     poll_deadline = time.time() + int(os.getenv("V3_PROVIDER_POLL_TIMEOUT_SECONDS", "900"))
     poll_interval = float(os.getenv("V3_PROVIDER_POLL_INTERVAL_SECONDS", "5"))
@@ -573,65 +820,18 @@ def process_generation_submission(submission_id: int) -> dict:
         extracted = provider.extract_result(status_response)
         status = (extracted.get("status") or "").lower()
         if status in {"succeeded", "success", "completed"}:
-            video_url = extracted.get("video_url")
-            if not video_url:
-                take_repository.update_generation_submission(submission_id, {"submission_status": "failed", "error_json": {"code": "missing_video_url", "message": "Provider succeeded but no video_url was returned."}, "submission_completed_at": utc_now()})
-                return {"submission_id": submission_id, "status": "failed", "error": "missing_video_url"}
-            take_repository.update_generation_submission(submission_id, {"submission_status": "downloading", "response_json": sanitize(status_response)})
-            take_number = take_repository.get_next_take_number(shot["id"])
-            local_path, qc_paths = _download_provider_video(video_url, project["id"], shot, take_number)
-            first_frame_path = qc_paths[0]
-            last_frame_path = qc_paths[1]
-            take_id = take_repository.create_take(
-                {
-                    "shot_id": shot["id"],
-                    "take_number": take_number,
-                    "prompt_version_id": prompt_version["id"],
-                    "seedance_task_id": task_id,
-                    "status": "completed",
-                    "local_path": local_path,
-                    "remote_url": video_url,
-                    "first_frame_path": first_frame_path,
-                    "last_frame_path": last_frame_path,
-                    "seed": random.randint(1, 999999),
-                    "generation_settings_json": {"tier": submission["generation_tier"], "provider_payload": sanitize(prompt_version["provider_payload_json"]), "provider": "ark"},
-                    "estimated_cost": provider.estimate_cost(duration=prompt_version["provider_payload_json"]["duration"], resolution=prompt_version["provider_payload_json"]["resolution"]),
-                    "tier": submission["generation_tier"],
-                    "source_asset_ids_json": [item.get("asset_id") for item in prompt_version["role_map_json"].get("assets", []) if item.get("asset_id")],
-                    "qc_frame_paths_json": qc_paths,
-                    "idempotency_key": submission["idempotency_key"],
-                    "submission_status": "succeeded",
-                    "provider_task_id": task_id,
-                    "provider_request_hash": submission["provider_request_hash"],
-                    "submission_started_at": submission.get("submission_started_at"),
-                    "submission_completed_at": utc_now(),
-                    "retry_count": submission.get("retry_count") or 0,
-                    "last_poll_at": utc_now(),
-                }
+            return _finalize_provider_success(
+                submission_id=submission_id,
+                project=project,
+                shot=shot,
+                prompt_version=prompt_version,
+                provider=provider,
+                status_response=status_response,
             )
-            record_continuity_from_take(project_id=project["id"], shot=shot, take_id=take_id, take_row={"first_frame_path": first_frame_path, "last_frame_path": last_frame_path})
-            take_repository.update_generation_submission(submission_id, {"submission_status": "succeeded", "take_id": take_id, "submission_completed_at": utc_now(), "response_json": sanitize(status_response)})
-            project_repository.create_usage_event(
-                {
-                    "project_id": project["id"],
-                    "shot_id": shot["id"],
-                    "take_id": take_id,
-                    "stage": f"seedance_{submission['generation_tier']}",
-                    "provider": "ark",
-                    "model": prompt_version["provider_payload_json"]["model"],
-                    "duration": prompt_version["provider_payload_json"]["duration"],
-                    "resolution": prompt_version["provider_payload_json"]["resolution"],
-                    "estimated_cost": provider.estimate_cost(duration=prompt_version["provider_payload_json"]["duration"], resolution=prompt_version["provider_payload_json"]["resolution"]),
-                    "status": "succeeded",
-                    "raw_usage_json": sanitize(status_response),
-                }
-            )
-            shot_repository.update_shot(shot["id"], {"status": "generated"})
-            return {"submission_id": submission_id, "take_id": take_id, "status": "succeeded"}
         if status in {"failed", "cancelled", "canceled"}:
             terminal = "cancelled" if status in {"cancelled", "canceled"} else "failed"
             take_repository.update_generation_submission(submission_id, {"submission_status": terminal, "response_json": sanitize(status_response), "submission_completed_at": utc_now()})
             return {"submission_id": submission_id, "status": terminal}
         time.sleep(min(poll_interval, 1.0))
-    take_repository.update_generation_submission(submission_id, {"submission_status": "failed", "error_json": {"code": "poll_timeout", "message": "Provider polling timed out."}, "submission_completed_at": utc_now(), "response_json": sanitize(final_response)})
-    return {"submission_id": submission_id, "status": "failed", "error": "poll_timeout"}
+    take_repository.update_generation_submission(submission_id, {"submission_status": "poll_timeout", "error_json": {"code": "poll_timeout", "message": "Provider polling timed out."}, "submission_completed_at": utc_now(), "response_json": sanitize(final_response)})
+    return {"submission_id": submission_id, "status": "poll_timeout", "error": "poll_timeout"}

@@ -132,6 +132,8 @@ def build_paid_confirmation(*, project_id: int, shot_id: int, prompt_version_id:
     return {
         "provider": provider_name,
         "model": prompt_version["provider_payload_json"].get("model"),
+        "project_id": project_id,
+        "shot_db_id": shot["id"],
         "shot_id": shot["shot_id"],
         "duration": prompt_version["provider_payload_json"].get("duration"),
         "resolution": prompt_version["provider_payload_json"].get("resolution"),
@@ -140,6 +142,7 @@ def build_paid_confirmation(*, project_id: int, shot_id: int, prompt_version_id:
         "estimated_cost": estimate,
         "idempotency_key": idempotency_key,
         "idempotency_key_prefix": idempotency_key[:12],
+        "confirmation_token": idempotency_key[:12],
         "confirmation_text": REAL_API_CONFIRM_TEXT,
     }
 

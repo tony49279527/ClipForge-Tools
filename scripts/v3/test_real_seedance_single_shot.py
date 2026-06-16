@@ -98,7 +98,7 @@ def main() -> int:
 
     print("About to submit one real paid Seedance draft generation.")
     print(f"Project ID: {project_id}")
-    print(f"Shot: {confirmation['shot']['shot_id']} / DB {confirmation['shot']['id']}")
+    print(f"Shot: {confirmation['shot_id']} / DB {confirmation['shot_db_id']}")
     print(f"Provider: {confirmation['provider']} / {confirmation['model']}")
     print(f"Duration: {confirmation['duration']}s")
     print(f"Resolution: {confirmation['resolution']}")

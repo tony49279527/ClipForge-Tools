@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 import requests
 
 
@@ -88,6 +89,30 @@ def test_paid_confirmation_required(client, db_conn, buffing_wheel_payload, samp
         assert "Paid generation confirmation" in str(exc)
 
 
+def test_paid_confirmation_contract_contains_flat_fields(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    project_id, shot, prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
+    confirmation = generation.build_paid_confirmation(project_id=project_id, shot_id=shot["id"], prompt_version_id=prompt["id"], tier="draft")
+    assert confirmation["project_id"] == project_id
+    assert confirmation["shot_db_id"] == shot["id"]
+    assert confirmation["shot_id"] == shot["shot_id"]
+    assert confirmation["confirmation_token"]
+    assert confirmation["confirmation_token"] == confirmation["idempotency_key_prefix"]
+
+
+def test_wrong_paid_confirmation_token_is_rejected(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    project_id, shot, prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
+    monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
+    try:
+        generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token="wrong-token")
+        assert False, "expected paid confirmation token rejection"
+    except ValueError as exc:
+        assert "Paid generation confirmation" in str(exc)
+
+
 def test_idempotency_duplicate_click_reuses_submission(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
     generation = importlib.import_module("clipforge_v3.services.generation_service")
     fake = FakeArkProvider()
@@ -98,8 +123,8 @@ def test_idempotency_duplicate_click_reuses_submission(client, db_conn, buffing_
     confirmation = generation.build_paid_confirmation(project_id=project_id, shot_id=shot["id"], prompt_version_id=prompt["id"], tier="draft")
     monkeypatch.setattr(generation, "get_provider", lambda: fake)
     monkeypatch.setattr(generation, "_download_provider_video", lambda video_url, project_id, shot, take_number: generation._build_mock_video(project_id, shot, take_number))
-    first = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["idempotency_key_prefix"])
-    second = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["idempotency_key_prefix"])
+    first = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["confirmation_token"])
+    second = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["confirmation_token"])
     assert first["take_id"] == second["take_id"]
     assert fake.submit_calls == 1
     count = db_conn.execute("SELECT COUNT(*) AS count FROM v3_generation_submissions").fetchone()["count"]
@@ -115,7 +140,7 @@ def test_timeout_enters_unknown_submission_state(client, db_conn, buffing_wheel_
     monkeypatch.setenv("V3_SYNC_PROVIDER_TASK_FOR_TESTS", "true")
     confirmation = generation.build_paid_confirmation(project_id=project_id, shot_id=shot["id"], prompt_version_id=prompt["id"], tier="draft")
     monkeypatch.setattr(generation, "get_provider", lambda: fake)
-    result = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["idempotency_key_prefix"])
+    result = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["confirmation_token"])
     assert result["task_result"]["status"] == "unknown_submission_state"
     row = db_conn.execute("SELECT submission_status, provider_task_id FROM v3_generation_submissions").fetchone()
     assert row["submission_status"] == "unknown_submission_state"
@@ -146,7 +171,7 @@ def test_worker_retry_with_saved_task_id_only_polls(client, db_conn, buffing_whe
             "provider_request_hash": "hash",
             "submission_status": "submitted",
             "paid_confirmed": True,
-            "confirmation_token": confirmation["idempotency_key_prefix"],
+            "confirmation_token": confirmation["confirmation_token"],
             "request_payload_json": prompt_row["provider_payload_json"],
         }
     )
@@ -168,7 +193,7 @@ def test_secret_not_in_submission_payload(client, db_conn, buffing_wheel_payload
     confirmation = generation.build_paid_confirmation(project_id=project_id, shot_id=shot["id"], prompt_version_id=prompt["id"], tier="draft")
     monkeypatch.setattr(generation, "get_provider", lambda: fake)
     monkeypatch.setattr(generation, "_download_provider_video", lambda video_url, project_id, shot, take_number: generation._build_mock_video(project_id, shot, take_number))
-    generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["idempotency_key_prefix"])
+    generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["confirmation_token"])
     raw = db_conn.execute("SELECT request_payload_json, response_json FROM v3_generation_submissions").fetchone()
     assert "super-secret-key" not in raw["request_payload_json"]
     assert "super-secret-key" not in raw["response_json"]
@@ -190,3 +215,12 @@ def test_mock_mode_never_submits_even_if_ark_key_exists(client, db_conn, buffing
     assert result["take_id"]
     row = db_conn.execute("SELECT provider FROM v3_usage_events WHERE take_id = ?", (result["take_id"],)).fetchone()
     assert row["provider"] == "mock"
+
+
+def test_manual_real_seedance_script_uses_paid_confirmation_contract_fields():
+    script = Path("scripts/v3/test_real_seedance_single_shot.py").read_text(encoding="utf-8")
+    assert "confirmation['shot']" not in script
+    assert 'confirmation["shot"]' not in script
+    assert "confirmation['shot_id']" in script or 'confirmation["shot_id"]' in script
+    assert "confirmation['shot_db_id']" in script or 'confirmation["shot_db_id"]' in script
+    assert "confirmation['confirmation_token']" in script or 'confirmation["confirmation_token"]' in script

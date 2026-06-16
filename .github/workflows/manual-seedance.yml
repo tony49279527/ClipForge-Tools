@@ -1,0 +1,46 @@
+name: Manual Seedance Provider Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_cost_cny:
+        description: "Hard maximum estimated cost for this manual provider check"
+        required: true
+        default: "5"
+
+jobs:
+  seedance-provider-check:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.max_cost_cny != '' }}
+    env:
+      CLIPFORGE_V3_ENABLED: "true"
+      SEEDANCE_PROVIDER: "ark"
+      SEEDANCE_MODEL: ${{ secrets.SEEDANCE_MODEL }}
+      SEEDANCE_BASE_URL: ${{ secrets.SEEDANCE_BASE_URL }}
+      SEEDANCE_API_KEY: ${{ secrets.SEEDANCE_API_KEY }}
+      V3_MANUAL_MAX_COST_CNY: ${{ github.event.inputs.max_cost_cny }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate secrets and cost cap
+        run: |
+          test -n "$SEEDANCE_API_KEY"
+          test -n "$SEEDANCE_MODEL"
+          test -n "$SEEDANCE_BASE_URL"
+          python - <<'PY'
+          import os
+          cap = float(os.environ["V3_MANUAL_MAX_COST_CNY"])
+          if cap <= 0 or cap > 20:
+              raise SystemExit("manual provider check cost cap must be 0 < cap <= 20 CNY")
+          print("manual provider configuration validated; no default paid call is executed")
+          PY
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+      - name: Provider adapter import and payload check only
+        run: python - <<'PY'
+          from clipforge_v3.providers.seedance_ark import ArkSeedanceProvider
+          provider = ArkSeedanceProvider()
+          print(provider.validate_capabilities({"mode": "I2V", "duration": 5, "ratio": "16:9", "resolution": "720p"}))
+          PY

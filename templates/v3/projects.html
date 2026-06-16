@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}ClipForge 3.0 Projects{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/v3/style.css">
+<section class="v3-shell">
+    <div class="v3-header-row">
+        <div>
+            <div class="v3-eyebrow">ClipForge 3.0</div>
+            <h1>Projects</h1>
+        </div>
+        <a class="btn" href="/v3/projects/new">Create Project</a>
+    </div>
+    <div class="v3-table">
+        <div class="v3-table-head">
+            <span>ID</span>
+            <span>Project</span>
+            <span>Product</span>
+            <span>Stage</span>
+            <span>Status</span>
+        </div>
+        {% for project in projects %}
+        <a class="v3-table-row" href="/v3/projects/{{ project['id'] }}">
+            <span>#{{ project["id"] }}</span>
+            <span>{{ project["project_name"] }}</span>
+            <span>{{ project["product_name"] }}</span>
+            <span>{{ project["current_stage"] }}</span>
+            <span>{{ project["project_status"] }}</span>
+        </a>
+        {% else %}
+        <div class="v3-empty">No V3 projects yet.</div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

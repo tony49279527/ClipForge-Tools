@@ -3,10 +3,35 @@ from datetime import datetime
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+from urllib.parse import urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data"))).resolve()
-DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "clipforge.db"))).resolve()
+DB_URL = os.getenv("DB_URL", "")
+
+
+def _resolve_db_path() -> Path:
+    if DB_URL:
+        parsed = urlparse(DB_URL)
+        if parsed.scheme and parsed.scheme != "sqlite":
+            raise RuntimeError("Only sqlite DB_URL is supported in this build. Use DB_PATH for local development.")
+        if parsed.scheme == "sqlite":
+            path = parsed.path
+            if parsed.netloc:
+                path = f"/{parsed.netloc}{parsed.path}"
+            return Path(path).resolve()
+    return Path(os.getenv("DB_PATH", str(DATA_DIR / "clipforge.db"))).resolve()
+
+
+DB_PATH = _resolve_db_path()
+SQL_IDENTIFIER_ALLOWLIST = {
+    "jobs",
+    "clips",
+    "storyboard_frames",
+    "frame_image_versions",
+    "templates",
+    "usage_events",
+}
 
 
 def utc_now() -> str:
@@ -15,8 +40,13 @@ def utc_now() -> str:
 
 def get_conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    timeout = float(os.getenv("SQLITE_TIMEOUT_SECONDS", "30"))
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=timeout)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 
@@ -219,6 +249,8 @@ def init_db() -> None:
 
 
 def ensure_column(cursor: sqlite3.Cursor, table_name: str, column_name: str, column_definition: str) -> None:
+    if table_name not in SQL_IDENTIFIER_ALLOWLIST:
+        raise ValueError(f"Unsupported table for schema update: {table_name}")
     cursor.execute(f"PRAGMA table_info({table_name})")
     existing_columns = {row[1] for row in cursor.fetchall()}
     if column_name not in existing_columns:

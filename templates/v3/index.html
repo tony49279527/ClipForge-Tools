@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}ClipForge 3.0{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/v3/style.css">
+<section class="v3-shell">
+    <div class="v3-hero">
+        <div>
+            <div class="v3-eyebrow">ClipForge 3.0</div>
+            <h1>Director-first product video pipeline</h1>
+            <p>Build product truth, plan shot contracts, track continuity, and prepare generation-ready assets without touching the 1.0 and 2.0 flows.</p>
+        </div>
+        <div class="v3-actions">
+            <a class="btn" href="/v3/projects/new">Create V3 Project</a>
+            <a class="btn ghost" href="/v3/projects">View Projects</a>
+        </div>
+    </div>
+    <div class="v3-grid">
+        <article class="v3-card">
+            <h2>Pipeline</h2>
+            <ul class="v3-list">
+                <li>Project Brief</li>
+                <li>Product Truth</li>
+                <li>Reference Assets</li>
+                <li>Director Plan</li>
+                <li>Shot Contracts</li>
+                <li>Prompt Compilation</li>
+                <li>Generation</li>
+                <li>Review</li>
+                <li>Delivery</li>
+            </ul>
+        </article>
+        <article class="v3-card">
+            <h2>Recent Projects</h2>
+            {% if projects %}
+            <ul class="v3-list">
+                {% for project in projects %}
+                <li><a href="/v3/projects/{{ project['id'] }}">{{ project["project_name"] }}</a> · {{ project["current_stage"] }}</li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p>No V3 projects yet.</p>
+            {% endif %}
+        </article>
+    </div>
+</section>
+{% endblock %}

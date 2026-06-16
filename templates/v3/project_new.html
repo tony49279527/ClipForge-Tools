@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}New ClipForge 3.0 Project{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/v3/style.css">
+<section class="v3-shell">
+    <div class="v3-header-row">
+        <div>
+            <div class="v3-eyebrow">ClipForge 3.0</div>
+            <h1>Create Project Brief</h1>
+        </div>
+        <a class="btn ghost" href="/v3/projects">Back to Projects</a>
+    </div>
+    <form action="/v3/projects" method="post" class="v3-form">
+        <label>Project Name<input type="text" name="project_name" required></label>
+        <label>Product Name<input type="text" name="product_name" required></label>
+        <label>Product Category<input type="text" name="product_category" required></label>
+        <label>Target Market<input type="text" name="target_market" value="{{ defaults.target_market }}" required></label>
+        <label>Target Audience<input type="text" name="target_audience" required></label>
+        <label>Product URL<input type="url" name="product_url"></label>
+        <label>Target Platform
+            <select name="target_platform">
+                <option value="amazon" selected>Amazon</option>
+                <option value="youtube">YouTube</option>
+                <option value="tiktok">TikTok</option>
+                <option value="instagram">Instagram</option>
+                <option value="shopify">Shopify</option>
+                <option value="multi_platform">Multi-platform</option>
+            </select>
+        </label>
+        <label>Aspect Ratio
+            <select name="aspect_ratio">
+                <option value="16:9" selected>16:9</option>
+                <option value="9:16">9:16</option>
+                <option value="1:1">1:1</option>
+                <option value="4:5">4:5</option>
+            </select>
+        </label>
+        <label>Total Duration<input type="number" name="total_duration" value="{{ defaults.total_duration }}" min="6" max="300" required></label>
+        <label>Default Clip Duration<input type="number" name="default_clip_duration" value="{{ defaults.default_clip_duration }}" min="4" max="8" required></label>
+        <label>Resolution
+            <select name="resolution">
+                <option value="720p">720p</option>
+                <option value="1080p" selected>1080p</option>
+                <option value="4k">4k</option>
+            </select>
+        </label>
+        <label>Language
+            <select name="language">
+                <option value="en" selected>English</option>
+                <option value="zh">Chinese</option>
+                <option value="bilingual">Bilingual</option>
+            </select>
+        </label>
+        <label>Dimensions<input type="text" name="dimensions_input" placeholder="6-inch diameter, 1-inch thickness, 1/2-inch center hole"></label>
+        <label>Materials<input type="text" name="materials_input" placeholder="stitched cotton, steel washer, steel nut"></label>
+        <label>Package Quantity<input type="text" name="package_quantity" placeholder="1 wheel, approx. 70 ply"></label>
+        <label class="v3-span-2">Parts Summary
+            <textarea name="parts_summary" rows="3" placeholder="wheel, center hole, stitched rings, washer, nut"></textarea>
+        </label>
+        <label class="v3-span-2">Installation Method
+            <textarea name="installation_method" rows="3" placeholder="spindle through center hole, washer, nut tighten"></textarea>
+        </label>
+        <label>Working Surface<input type="text" name="working_surface_input" placeholder="outer cotton circumference, bench grinder spindle"></label>
+        <label>Intended For<input type="text" name="intended_for" placeholder="metal polishing, RV hitch polishing"></label>
+        <label>Not For<input type="text" name="not_for" placeholder="stone grinding, synthetic fur use"></label>
+        <label class="v3-span-2">Safety Notes
+            <textarea name="safety_notes" rows="3" placeholder="keep hands clear of rotation path, secure with washer and nut"></textarea>
+        </label>
+        <label class="v3-span-2">Source Description
+            <textarea name="source_description" rows="8" required placeholder="Describe geometry, installation relationship, work surface, materials, packaging, and correct use."></textarea>
+        </label>
+        <button class="btn" type="submit">Create Project</button>
+    </form>
+</section>
+{% endblock %}

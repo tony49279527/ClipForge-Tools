@@ -12,6 +12,9 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from clipforge_v3 import is_v3_enabled
+from clipforge_v3.migrations import run_v3_migrations
+from clipforge_v3.router import router as v3_router
 from db import (
     create_clip_records,
     create_job,
@@ -75,6 +78,7 @@ def get_app_version() -> str:
 
 app = FastAPI(title="ClipForge Tools")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.include_router(v3_router)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
@@ -94,6 +98,7 @@ def build_common_context(request: Request) -> dict:
         "lang_switch_en": str(request.url.include_query_params(lang="en")),
         "lang_switch_zh": str(request.url.include_query_params(lang="zh")),
         "app_version": get_app_version(),
+        "clipforge_v3_enabled": is_v3_enabled(),
         "youtube_accounts": youtube_accounts,
         "has_youtube_accounts": len(youtube_accounts) > 0,
     }
@@ -359,6 +364,8 @@ def publish_v2_job(job_id: int) -> None:
 @app.on_event("startup")
 def on_startup() -> None:
     ensure_runtime_dirs()
+    if is_v3_enabled():
+        run_v3_migrations()
 
 
 @app.get("/")

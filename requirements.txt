@@ -10,3 +10,5 @@ google-auth-oauthlib==1.2.2
 google-auth-httplib2==0.2.0
 rq==2.8.0
 redis==7.0.1
+pytest==8.3.5
+Pillow==11.2.1

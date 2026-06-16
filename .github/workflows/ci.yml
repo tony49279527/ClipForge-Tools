@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CLIPFORGE_V3_ENABLED: "true"
+      SEEDANCE_PROVIDER: "ark"
+      SEEDANCE_MODEL: "mock-seedance"
+      SEEDANCE_BASE_URL: "https://example.invalid"
+      SEEDANCE_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+      - name: Python syntax
+        run: python -m compileall .
+      - name: Import check
+        run: python - <<'PY'
+          import app
+          import clipforge_v3.router
+          import clipforge_v3.services.generation_service
+          import clipforge_v3.providers.seedance_ark
+          print("imports ok")
+          PY
+      - name: Unit, smoke, migration, prompt, payload, security tests
+        run: pytest -q
+      - name: Director eval schema and rubrics
+        run: python evaluation/run_evals.py
+      - name: Full V3 workflow smoke
+        run: python scripts/test_v3_workflow_smoke.py
+

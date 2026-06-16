@@ -35,7 +35,7 @@ RETRY_DELAY_SEC = int(os.getenv("JOB_RETRY_DELAY", "5"))
 
 _redis_client: Optional[Redis] = None
 _queue: Optional[Queue] = None
-STATIC_JOB_PREFIXES = ("video", "prompts", "storyboard_video", "publish")
+STATIC_JOB_PREFIXES = ("video", "prompts", "storyboard_video", "publish", "v3_bootstrap", "v3_generation")
 
 
 def _enqueue_with_reusable_job_id(*, job_id: str, func: str, args: List[Any], job_timeout: int) -> RQJob:
@@ -132,6 +132,31 @@ def enqueue_publish_job(job_id: int) -> RQJob:
     )
 
 
+def enqueue_v3_bootstrap_job(project_id: int) -> RQJob:
+    """Enqueue a ClipForge 3.0 bootstrap/status refresh task."""
+    return _enqueue_with_reusable_job_id(
+        job_id=f"v3_bootstrap_{project_id}",
+        func="task_queue.run_v3_bootstrap_wrapper",
+        args=[project_id],
+        job_timeout=600,
+    )
+
+
+def enqueue_v3_generation_job(submission_id: int, idempotency_key: str) -> RQJob:
+    """Enqueue a provider-backed ClipForge 3.0 generation task.
+
+    The RQ job id is stable per idempotency key so worker retries or repeated
+    clicks resume the same provider submission instead of creating another paid
+    task.
+    """
+    return _enqueue_with_reusable_job_id(
+        job_id=f"v3_generation_{idempotency_key}",
+        func="task_queue.run_v3_generation_wrapper",
+        args=[submission_id],
+        job_timeout=7200,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Wrapper functions (called by RQ worker)
 # ---------------------------------------------------------------------------
@@ -169,6 +194,20 @@ def run_publish_wrapper(job_id: int) -> Dict[str, Any]:
     from app import publish_v2_job as _run
     _run(job_id)
     return {"job_id": job_id, "stage": "published"}
+
+
+def run_v3_bootstrap_wrapper(project_id: int) -> Dict[str, Any]:
+    """Wrapper for v3 service tasks without importing app.py."""
+    from clipforge_v3.tasks import bootstrap_project_task
+
+    return bootstrap_project_task(project_id)
+
+
+def run_v3_generation_wrapper(submission_id: int) -> Dict[str, Any]:
+    """Wrapper for v3 provider generation without importing app.py."""
+    from clipforge_v3.tasks import run_generation_submission_task
+
+    return run_generation_submission_task(submission_id)
 
 
 # ---------------------------------------------------------------------------

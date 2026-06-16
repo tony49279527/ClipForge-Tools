@@ -35,6 +35,25 @@ def _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file) 
     return project_id, shot, prompt
 
 
+def _set_asset_url(db_conn, *, project_id: int, remote_url: str | None = None, access_url: str | None = None) -> None:
+    row = db_conn.execute("SELECT id FROM v3_assets WHERE project_id = ? ORDER BY id LIMIT 1", (project_id,)).fetchone()
+    assert row
+    asset_repo = importlib.import_module("clipforge_v3.repositories.asset_repository")
+    fields = {}
+    if remote_url is not None:
+        fields["remote_url"] = remote_url
+    if access_url is not None:
+        fields["access_url"] = access_url
+    asset_repo.update_asset(row["id"], fields)
+
+
+def _compile_prompt_with_https_asset(generation, db_conn, *, project_id: int, shot: dict) -> dict:
+    _set_asset_url(db_conn, project_id=project_id, remote_url=f"https://cdn.example.com/products/{project_id}/identity.jpg")
+    prompt = generation.compile_prompt(project_id=project_id, shot_id=shot["id"])
+    generation.lock_prompt(prompt["id"])
+    return prompt
+
+
 class FakeArkProvider:
     def __init__(self, timeout_submit: bool = False):
         self.timeout_submit = timeout_submit
@@ -77,9 +96,18 @@ class FakeArkProvider:
         return {"code": "timeout" if isinstance(error, requests.Timeout) else "provider_error", "message": str(error)}
 
 
+def _content_image_urls(payload: dict) -> list[str]:
+    urls = []
+    for entry in payload.get("content", []):
+        if entry.get("type") == "image_url":
+            urls.append(entry.get("image_url", {}).get("url"))
+    return urls
+
+
 def test_paid_confirmation_required(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
     generation = importlib.import_module("clipforge_v3.services.generation_service")
-    project_id, shot, prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
     monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
     monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
     try:
@@ -103,7 +131,8 @@ def test_paid_confirmation_contract_contains_flat_fields(client, db_conn, buffin
 
 def test_wrong_paid_confirmation_token_is_rejected(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
     generation = importlib.import_module("clipforge_v3.services.generation_service")
-    project_id, shot, prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
     monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
     monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
     try:
@@ -116,7 +145,8 @@ def test_wrong_paid_confirmation_token_is_rejected(client, db_conn, buffing_whee
 def test_idempotency_duplicate_click_reuses_submission(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
     generation = importlib.import_module("clipforge_v3.services.generation_service")
     fake = FakeArkProvider()
-    project_id, shot, prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
     monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
     monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
     monkeypatch.setenv("V3_SYNC_PROVIDER_TASK_FOR_TESTS", "true")
@@ -131,10 +161,102 @@ def test_idempotency_duplicate_click_reuses_submission(client, db_conn, buffing_
     assert count == 1
 
 
+def test_https_remote_url_enters_ark_payload(client, db_conn, buffing_wheel_payload, sample_image_file):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    image_url = "https://cdn.example.com/products/buffing-wheel.jpg?signature=secret"
+    _set_asset_url(db_conn, project_id=project_id, remote_url=image_url)
+    prompt = generation.compile_prompt(project_id=project_id, shot_id=shot["id"])
+    urls = _content_image_urls(prompt["provider_payload_json"])
+    assert image_url in urls
+    image_entries = [entry for entry in prompt["provider_payload_json"]["content"] if entry.get("type") == "image_url"]
+    assert image_entries[0]["reference_role"] == "product_identity"
+    assert image_entries[0]["label"] == "Image1"
+    assert image_entries[0]["must_transfer"]
+
+
+def test_https_access_url_fallback_enters_ark_payload(client, db_conn, buffing_wheel_payload, sample_image_file):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    image_url = "https://assets.example.net/public/product-side.png"
+    _set_asset_url(db_conn, project_id=project_id, access_url=image_url)
+    prompt = generation.compile_prompt(project_id=project_id, shot_id=shot["id"])
+    assert image_url in _content_image_urls(prompt["provider_payload_json"])
+
+
+def test_ark_submit_payload_contains_real_https_image_url(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    seedance = importlib.import_module("clipforge_v3.providers.seedance_ark")
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    image_url = "https://cdn.example.com/products/buffing-wheel.jpg?signature=secret"
+    _set_asset_url(db_conn, project_id=project_id, remote_url=image_url)
+    prompt = generation.compile_prompt(project_id=project_id, shot_id=shot["id"])
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"task_id": "ark-task-url", "status": "submitted"}
+
+    def fake_post(url, headers, json, timeout):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["json"] = json
+        return Response()
+
+    monkeypatch.setenv("ARK_API_KEY", "super-secret-key")
+    monkeypatch.setattr(seedance.requests, "post", fake_post)
+    result = seedance.ArkSeedanceProvider().submit_task(prompt["provider_payload_json"])
+    assert image_url in _content_image_urls(captured["json"])
+    assert captured["headers"]["Authorization"] == "Bearer super-secret-key"
+    assert "super-secret-key" not in str(result)
+    assert "signature=secret" not in str(result["request"])
+
+
+def test_ark_preflight_blocks_identity_asset_without_https_source(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    project_id, shot, prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
+    result = generation.preflight(project_id, shot["id"], prompt["id"], "draft")
+    assert not result["allow_submit"]
+    assert any(item["name"] == "provider_asset_source_product_identity" and not item["passed"] for item in result["items"])
+    assert "MISSING_PROVIDER_ASSET_SOURCE" in str(result)
+
+
+def test_provider_asset_resolver_rejects_non_public_https_sources():
+    resolver = importlib.import_module("clipforge_v3.services.provider_asset_resolver")
+    role = {"asset_id": 1, "primary_role": "product_identity", "must_transfer": [], "must_not_transfer": []}
+    cases = [
+        ("http://example.com/product.jpg", "not_https"),
+        ("https://localhost/product.jpg", "blocked_host"),
+        ("https://127.0.0.1/product.jpg", "blocked_host"),
+        ("https://10.0.0.5/product.jpg", "blocked_host"),
+        ("file:///tmp/product.jpg", "not_https"),
+        ("", "empty_url"),
+        ("not a url", "not_https"),
+    ]
+    for url, reason in cases:
+        ref = resolver.resolve_provider_reference({"id": 1, "remote_url": url, "primary_role": "product_identity"}, role, label="Image1")
+        assert not ref["available"]
+        assert ref["url"] is None
+        assert ref["unavailable_reason"] == reason
+
+
+def test_mock_mode_still_allows_local_identity_asset(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    project_id, shot, prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "mock")
+    result = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft")
+    assert result["take_id"]
+
+
 def test_timeout_enters_unknown_submission_state(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
     generation = importlib.import_module("clipforge_v3.services.generation_service")
     fake = FakeArkProvider(timeout_submit=True)
-    project_id, shot, prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
     monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
     monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
     monkeypatch.setenv("V3_SYNC_PROVIDER_TASK_FOR_TESTS", "true")
@@ -151,7 +273,8 @@ def test_timeout_enters_unknown_submission_state(client, db_conn, buffing_wheel_
 def test_worker_retry_with_saved_task_id_only_polls(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
     generation = importlib.import_module("clipforge_v3.services.generation_service")
     fake = FakeArkProvider()
-    project_id, shot, prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
     confirmation = generation.build_paid_confirmation(project_id=project_id, shot_id=shot["id"], prompt_version_id=prompt["id"], tier="draft")
     monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
     monkeypatch.setenv("V3_REAL_API_ENABLED", "true")
@@ -185,7 +308,8 @@ def test_worker_retry_with_saved_task_id_only_polls(client, db_conn, buffing_whe
 def test_secret_not_in_submission_payload(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
     generation = importlib.import_module("clipforge_v3.services.generation_service")
     fake = FakeArkProvider()
-    project_id, shot, prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
     monkeypatch.setenv("ARK_API_KEY", "super-secret-key")
     monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
     monkeypatch.setenv("V3_REAL_API_ENABLED", "true")

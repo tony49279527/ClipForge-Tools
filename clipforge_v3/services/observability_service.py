@@ -5,6 +5,7 @@ import logging
 import re
 import uuid
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from clipforge_v3.repositories import project_repository
 
@@ -35,6 +36,9 @@ def sanitize(value: Any) -> Any:
         output = value
         for pattern in SECRET_PATTERNS:
             output = pattern.sub("***", output)
+        if output.startswith(("http://", "https://")):
+            parsed = urlsplit(output)
+            output = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
         return output
     return value
 
@@ -77,4 +81,3 @@ def log_event(
 
 def list_recent_events(project_id: int | None = None, limit: int = 20) -> list[dict]:
     return [dict(row) for row in project_repository.list_operation_events(project_id, limit)]
-

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -32,6 +33,9 @@ def _sanitize(obj: Any) -> Any:
         return sanitized
     if isinstance(obj, list):
         return [_sanitize(item) for item in obj]
+    if isinstance(obj, str) and obj.startswith(("http://", "https://")):
+        parsed = urlsplit(obj)
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
     return obj
 
 
@@ -50,14 +54,54 @@ class ArkSeedanceProvider(VideoGenerationProvider):
                     missing.append(needed)
         return {"supported": not unsupported and not missing, "unsupported": unsupported, "missing": sorted(set(missing))}
 
-    def build_payload(self, *, prompt_text: str, mode: str, ratio: str, duration: int, resolution: str, generate_audio: bool, reference_roles: list[dict]) -> dict[str, Any]:
+    def build_payload(
+        self,
+        *,
+        prompt_text: str,
+        mode: str,
+        ratio: str,
+        duration: int,
+        resolution: str,
+        generate_audio: bool,
+        reference_roles: list[dict],
+        resolved_references: list[dict] | None = None,
+    ) -> dict[str, Any]:
         content = [{"type": "text", "text": prompt_text}]
+        resolved_by_asset = {ref.get("asset_id"): ref for ref in resolved_references or []}
+        resolved_by_role = {ref.get("primary_role"): ref for ref in resolved_references or []}
+        reference_audit = []
         for index, ref in enumerate(reference_roles, start=1):
             if ref["primary_role"] in FAIL_OPEN_ROLES | FAIL_CLOSED_ROLES:
+                resolved = resolved_by_asset.get(ref.get("asset_id")) or resolved_by_role.get(ref.get("primary_role")) or {}
+                label = resolved.get("label") or f"Image{index}"
+                reference_audit.append(
+                    {
+                        "asset_id": ref.get("asset_id"),
+                        "label": label,
+                        "role": ref["primary_role"],
+                        "source_type": resolved.get("source_type"),
+                        "has_source": bool(resolved.get("url")),
+                        "url_preview": resolved.get("preview", {"has_source": False}),
+                        "fail_policy": resolved.get("fail_policy"),
+                    }
+                )
+                if resolved.get("url"):
+                    content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": resolved["url"]},
+                            "role": "reference_image",
+                            "label": label,
+                            "reference_role": ref["primary_role"],
+                            "must_transfer": resolved.get("must_transfer", ref.get("must_transfer", [])),
+                            "must_not_transfer": resolved.get("must_not_transfer", ref.get("must_not_transfer", [])),
+                        }
+                    )
+                    continue
                 content.append(
                     {
                         "type": "reference_role",
-                        "label": f"Asset{index}",
+                        "label": label,
                         "role": ref["primary_role"],
                         "must_transfer": ref.get("must_transfer", []),
                         "must_not_transfer": ref.get("must_not_transfer", []),
@@ -74,6 +118,7 @@ class ArkSeedanceProvider(VideoGenerationProvider):
             "resolution": resolution or SEEDANCE_DEFAULT_RESOLUTION,
             "generate_audio": generate_audio if generate_audio is not None else SEEDANCE_GENERATE_AUDIO,
             "watermark": SEEDANCE_WATERMARK,
+            "reference_audit": reference_audit,
         }
 
     def submit_task(self, payload: dict[str, Any]) -> dict[str, Any]:

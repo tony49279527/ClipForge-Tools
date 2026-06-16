@@ -36,6 +36,7 @@ from clipforge_v3.services.asset_service import list_assets
 from clipforge_v3.services.continuity_service import build_continuity_context, record_continuity_from_take
 from clipforge_v3.services.observability_service import sanitize
 from clipforge_v3.services.product_truth_service import get_latest_product_truth
+from clipforge_v3.services.provider_asset_resolver import resolve_provider_references
 from clipforge_v3.services.scheduling_service import compute_schedule_state
 from clipforge_v3.services.shot_service import list_shots
 
@@ -252,6 +253,7 @@ def compile_prompt(*, project_id: int, shot_id: int) -> dict:
     role_map = {"assets": role_assets, "warnings": [], "reanchor_identity": continuity_context["reanchor_identity"]}
     provider = get_provider()
     provider_capabilities = provider.validate_capabilities(mode=shot["mode"], reference_roles=role_assets)
+    resolved_references = resolve_provider_references(assets, role_assets)
     compiler_input = normalize_input(
         CompilerInput(
             project=project,
@@ -287,6 +289,7 @@ def compile_prompt(*, project_id: int, shot_id: int) -> dict:
         resolution=project["resolution"],
         generate_audio=SEEDANCE_GENERATE_AUDIO and shot["audio_contract_json"].get("priority") != "mute",
         reference_roles=role_assets,
+        resolved_references=resolved_references,
     )
     blocking = [issue for issue in issues if issue.severity == "blocking_error"]
     result = PromptCompileResult(
@@ -362,6 +365,7 @@ def preflight(project_id: int, shot_id: int, prompt_version_id: int, tier: str) 
         provider_capabilities=provider_capabilities,
         tier=tier,
         dependency_complete=_dependency_complete(project_id, shot),
+        provider_name=get_video_provider_mode(),
     )
     project_repository.create_preflight_check(
         {

@@ -4,6 +4,7 @@ import importlib
 import importlib.util
 from pathlib import Path
 import sqlite3
+from unittest.mock import Mock
 import requests
 import pytest
 
@@ -58,8 +59,9 @@ def _compile_prompt_with_https_asset(generation, db_conn, *, project_id: int, sh
 
 
 class FakeArkProvider:
-    def __init__(self, timeout_submit: bool = False):
+    def __init__(self, timeout_submit: bool = False, video_url: str = "https://cdn.example/video.mp4"):
         self.timeout_submit = timeout_submit
+        self.video_url = video_url
         self.submit_calls = 0
         self.status_calls = 0
 
@@ -78,7 +80,7 @@ class FakeArkProvider:
 
     def get_task_status(self, task_id):
         self.status_calls += 1
-        return {"task_id": task_id, "status": "succeeded", "content": {"video_url": "https://cdn.example/video.mp4"}}
+        return {"task_id": task_id, "status": "succeeded", "content": {"video_url": self.video_url}}
 
     def cancel_task(self, task_id):
         return {"task_id": task_id, "cancelled": True}
@@ -147,6 +149,30 @@ def _submit_successful_real_generation(generation, db_conn, monkeypatch, *, clie
     result = generation.submit_generation(project_id, shot["id"], prompt["id"], "draft", paid_confirmed=True, paid_confirmation_token=confirmation["confirmation_token"])
     submission = db_conn.execute("SELECT * FROM v3_generation_submissions").fetchone()
     return project_id, shot, prompt, fake, result, submission
+
+
+def _reserve_existing_provider_submission(generation, *, project_id: int, shot: dict, prompt: dict, status: str = "downloading") -> dict:
+    prompt_row = generation._decode_prompt_version(dict(importlib.import_module("clipforge_v3.repositories.shot_repository").get_prompt_version(prompt["id"])))
+    key = generation.build_idempotency_key(project_id=project_id, shot_id=shot["id"], prompt_version_id=prompt["id"], tier="draft", provider="ark", prompt_version=prompt_row)
+    repo = importlib.import_module("clipforge_v3.repositories.take_repository")
+    submission, _ = repo.reserve_generation_submission(
+        {
+            "project_id": project_id,
+            "shot_id": shot["id"],
+            "prompt_version_id": prompt["id"],
+            "generation_tier": "draft",
+            "provider": "ark",
+            "idempotency_key": key,
+            "provider_request_hash": "hash",
+            "submission_status": status,
+            "paid_confirmed": True,
+            "confirmation_token": key[:12],
+            "request_payload_json": prompt_row["provider_payload_json"],
+            "budget_approved_at": "2026-06-16T00:00:00Z",
+        }
+    )
+    repo.update_generation_submission(submission["id"], {"provider_task_id": "ark-task-existing"})
+    return repo.get_generation_submission(submission["id"])
 
 
 def test_paid_confirmation_required(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
@@ -453,6 +479,136 @@ def test_old_reserved_row_without_budget_approval_cannot_submit(client, db_conn,
     assert fake.submit_calls == 0
 
 
+def test_ark_status_preserves_signed_video_url_query(monkeypatch):
+    seedance = importlib.import_module("clipforge_v3.providers.seedance_ark")
+    signed_url = "https://cdn.example/video.mp4?X-Amz-Signature=a%2Bb&Expires=1&token=abc%3Ddef"
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"id": "ark-task-existing", "status": "succeeded", "content": {"video_url": signed_url}}
+
+    monkeypatch.setenv("ARK_API_KEY", "secret")
+    monkeypatch.setattr(seedance.requests, "get", lambda *args, **kwargs: Response())
+    result = seedance.ArkSeedanceProvider().get_task_status("ark-task-existing")
+    assert result["content"]["video_url"] == signed_url
+    extracted = seedance.ArkSeedanceProvider().extract_result(result)
+    assert extracted["video_url"] == signed_url
+    assert extracted["raw"]["content"]["video_url"] == "https://cdn.example/video.mp4"
+
+
+def test_download_uses_full_signed_url_and_allows_redirects(tmp_path, monkeypatch):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    signed_url = "https://cdn.example/video.mp4?X-Amz-Signature=a%2Bb&Expires=1&token=abc%3Ddef"
+    requested = {}
+
+    class Redirect:
+        status_code = 302
+        url = "https://ark.example/redirect?token=first"
+
+    class Response:
+        status_code = 200
+        url = "https://cdn.example/final.mp4?X-Amz-Signature=final%2Bsig"
+        headers = {"content-type": "video/mp4"}
+        history = [Redirect()]
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size):
+            yield b"video"
+
+    def fake_get(url, timeout, stream):
+        requested["url"] = url
+        requested["timeout"] = timeout
+        requested["stream"] = stream
+        return Response()
+
+    monkeypatch.setattr(generation, "OUTPUTS_DIR", tmp_path)
+    monkeypatch.setattr(generation.requests, "get", fake_get)
+    monkeypatch.setattr(generation, "_extract_frames", lambda path: [str(path.with_name("first.jpg")), str(path.with_name("last.jpg"))])
+    local_path, qc_paths = generation._download_provider_video(signed_url, 1, {"shot_id": "S01"}, 1)
+    assert requested == {"url": signed_url, "timeout": (10, 180), "stream": True}
+    assert Path(local_path).read_bytes() == b"video"
+    assert len(qc_paths) == 2
+
+
+@pytest.mark.parametrize("initial_status", ["downloading", "download_failed"])
+def test_existing_provider_task_recovery_download_failure_does_not_submit_or_duplicate(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch, initial_status):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    signed_url = "https://cdn.example/video.mp4?X-Amz-Signature=a%2Bb&Expires=1&token=abc%3Ddef"
+    fake = FakeArkProvider(video_url=signed_url)
+    fake.submit_task = Mock(side_effect=AssertionError("recovery must not create a provider task"))
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
+    submission = _reserve_existing_provider_submission(generation, project_id=project_id, shot=shot, prompt=prompt, status=initial_status)
+    response = requests.Response()
+    response.status_code = 403
+    response.url = signed_url
+    response.headers["content-type"] = "application/xml"
+    response.headers["content-length"] = "123"
+    error = requests.HTTPError(f"403 Client Error: Forbidden for url: {signed_url}", response=response)
+    captured = {}
+
+    def fail_download(video_url, project_id, shot, take_number):
+        captured["video_url"] = video_url
+        raise error
+
+    monkeypatch.setattr(generation, "get_provider", lambda: fake)
+    monkeypatch.setattr(generation, "_download_provider_video", fail_download)
+    result = generation.recover_generation_submission(submission["id"])
+    fake.submit_task.assert_not_called()
+    assert fake.status_calls == 1
+    assert captured["video_url"] == signed_url
+    assert result["status"] == "download_recovery_required"
+    row = db_conn.execute("SELECT submission_status, provider_task_id, take_id, error_json FROM v3_generation_submissions WHERE id = ?", (submission["id"],)).fetchone()
+    assert row["submission_status"] == "download_failed"
+    assert row["provider_task_id"] == "ark-task-existing"
+    assert row["take_id"] is None
+    assert "token=abc" not in row["error_json"]
+    assert "X-Amz-Signature" in row["error_json"]
+    assert _count_rows(db_conn, "v3_generation_submissions") == 1
+    assert _count_rows(db_conn, "v3_takes") == 0
+    assert _usage_count_for_submission(db_conn, submission["id"]) == 1
+
+
+@pytest.mark.parametrize("initial_status", ["downloading", "download_failed"])
+def test_existing_provider_task_recovery_success_is_idempotent(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch, initial_status):
+    generation = importlib.import_module("clipforge_v3.services.generation_service")
+    signed_url = "https://cdn.example/video.mp4?X-Amz-Signature=a%2Bb&Expires=1&token=abc%3Ddef"
+    fake = FakeArkProvider(video_url=signed_url)
+    fake.submit_task = Mock(side_effect=AssertionError("recovery must not create a provider task"))
+    project_id, shot, _prompt = _prepare_project(client, db_conn, buffing_wheel_payload, sample_image_file)
+    prompt = _compile_prompt_with_https_asset(generation, db_conn, project_id=project_id, shot=shot)
+    submission = _reserve_existing_provider_submission(generation, project_id=project_id, shot=shot, prompt=prompt, status=initial_status)
+    captured = []
+
+    def successful_download(video_url, project_id, shot, take_number):
+        captured.append(video_url)
+        return generation._build_mock_video(project_id, shot, take_number)
+
+    monkeypatch.setattr(generation, "get_provider", lambda: fake)
+    monkeypatch.setattr(generation, "_download_provider_video", successful_download)
+    first = generation.recover_generation_submission(submission["id"])
+    second = generation.recover_generation_submission(submission["id"])
+    fake.submit_task.assert_not_called()
+    assert fake.status_calls == 2
+    assert captured == [signed_url]
+    assert first["status"] == "succeeded"
+    assert second["status"] == "succeeded"
+    row = db_conn.execute("SELECT submission_status, provider_task_id, take_id FROM v3_generation_submissions WHERE id = ?", (submission["id"],)).fetchone()
+    assert row["submission_status"] == "succeeded"
+    assert row["provider_task_id"] == "ark-task-existing"
+    assert row["take_id"] is not None
+    assert _count_rows(db_conn, "v3_generation_submissions") == 1
+    assert _count_rows(db_conn, "v3_takes") == 1
+    assert _usage_count_for_submission(db_conn, submission["id"]) == 1
+    usage = db_conn.execute("SELECT take_id FROM v3_usage_events WHERE event_key = ?", (f"provider_generation:{submission['id']}",)).fetchone()
+    assert usage["take_id"] == row["take_id"]
+
+
 @pytest.mark.parametrize(
     "crash_point",
     ["after_download_before_take", "after_take_before_submission_link", "after_submission_link_before_usage", "after_usage_before_shot_update"],
@@ -695,3 +851,12 @@ def test_manual_real_seedance_script_uses_paid_confirmation_contract_fields():
     assert "confirmation['confirmation_token']" in script or 'confirmation["confirmation_token"]' in script
     assert '"remote_url": image_url' in script
     assert "Image.new" not in script
+
+
+def test_recovery_script_cannot_create_provider_submission():
+    script = Path("scripts/v3/recover_real_seedance_submission.py").read_text(encoding="utf-8")
+    assert "NO NEW PROVIDER SUBMISSION" in script
+    assert "submit_task(" not in script
+    assert "submit_generation" not in script
+    assert "test_real_seedance_single_shot" not in script
+    assert "YES_PAY_SEEDANCE_ONCE" not in script

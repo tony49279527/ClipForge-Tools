@@ -4,7 +4,7 @@
 
 ClipForge V3 has moved beyond the earlier Mock-only state. The current branch does have a real Ark submission path wired through `clipforge_v3/services/generation_service.py::submit_generation` and `::process_generation_submission`, and the provider adapter in `clipforge_v3/providers/seedance_ark.py` can build payloads, submit tasks, poll task state, extract a video URL, download the file, create a Take, and write a cost event.
 
-The state-machine hardening pass now resolves the three billing-safety findings that blocked the next staged provider check. The remaining blocker before a paid run is payload inspection with a real public HTTPS product image plus explicit human authorization for a single paid test. This does not make the branch production ready.
+The state-machine hardening pass resolved the three billing-safety findings that blocked the first paid provider check. A single manually authorized 5-second 720p task has now been submitted and the provider completed it successfully. The first local download failed with `403` because the signed result URL was sanitized before the downloader used it; the recovery pass now re-queries the existing provider task, preserves the runtime signed URL for download, and finalizes the existing submission without creating a new provider task. This does not make the branch production ready.
 
 Resolved in state-machine hardening commit:
 
@@ -12,21 +12,21 @@ Resolved in state-machine hardening commit:
 2. Provider success persistence is replay-safe. A generation submission can own only one Take through `v3_takes.generation_submission_id`, and video generation cost can be written only once through `v3_usage_events.event_key`.
 3. New real-provider submissions run `_ensure_budget()` before `reserve_generation_submission()`, and old `reserved` rows without `budget_approved_at` cannot be submitted automatically.
 
-The single next recommended task is now: **run the safe Payload Inspector with a real public HTTPS product image and manually inspect the Ark payload before authorizing any paid provider call**.
+The single next recommended task is now: **start object storage integration for durable public HTTPS assets and generated videos**.
 
 ## 2. Current Repository Baseline
 
 - Repository: `tony49279527/ClipForge-Tools`
 - Branch: `clipforge-v3-real-provider-alpha`
-- Current branch HEAD at start of state-machine hardening pass: `0edbaae4ab5c75961fa7e64ffe34843c3acd17e1`
+- Current branch HEAD at start of download recovery pass: `7df78643fe33b1c6fc9fd1c58ecf97e1ee5a2eeb`
 - Last verified functional baseline: `b18b6974fd63f748fe37a140644f8b83c212efc8`
-- Latest docs commit before hardening: `0edbaae docs(v3): add real provider readiness audit`
+- Latest completed commit before recovery pass: `7df7864 fix(v3): harden real provider submission state machine`
 
 Current local verification in this audit run:
 
-- `python -m pytest -q tests/v3` -> `94 passed`
+- `python -m pytest -q tests/v3` -> `101 passed`
 - `python -m pytest -q tests/test_legacy_routes.py` -> `3 passed`
-- `python -m pytest --collect-only -q tests/v3` -> `94 tests collected`
+- `python -m pytest --collect-only -q tests/v3` -> not rerun in this recovery pass
 - Warning runs with `-W default` still pass, but expose Python 3.9, LibreSSL, FastAPI `on_event`, and Starlette templating deprecations
 
 ## 3. V3 Architecture Map
@@ -180,11 +180,17 @@ Top-level modules used by the real-provider path:
 - Download:
   - `generation_service._download_provider_video()`
   - saves to `outputs/{project_id}/shots/{shot_id}/takes/{take_number}/video.mp4`
+  - uses the runtime result URL from the latest provider status response, including signed query parameters
+  - a download failure records `download_failed` and can be recovered without creating another provider task
 - DB writes on success:
   - `v3_takes` with `generation_submission_id`
   - `v3_generation_submissions.take_id`
   - `v3_usage_events` with `event_key = provider_generation:{submission_id}`
   - `v3_shots.status = generated`
+- DB writes when provider succeeded but local download fails:
+  - `v3_usage_events` is still recorded once, because provider generation cost has already occurred
+  - `v3_generation_submissions.submission_status = download_failed`
+  - no Take is created until the artifact is recovered
 - Paid risk: yes
 - Tests:
   - `tests/v3/test_real_provider_alpha.py::test_worker_retry_with_saved_task_id_only_polls`
@@ -192,7 +198,9 @@ Top-level modules used by the real-provider path:
   - `::test_provider_success_replay_is_idempotent_after_worker_crash`
   - `::test_completed_provider_submission_can_be_replayed_without_duplicate_take_or_cost`
   - `::test_database_constraints_prevent_duplicate_take_and_usage_for_submission`
-- Current usability: replay-safe for mocked provider success; real paid test still pending
+  - `::test_existing_provider_task_recovery_download_failure_does_not_submit_or_duplicate`
+  - `::test_existing_provider_task_recovery_success_is_idempotent`
+- Current usability: one real paid task succeeded and was recovered locally; production still blocked by object storage
 
 ## 5. Database and State Model Review
 
@@ -338,8 +346,15 @@ Long-run risks remain:
 
 - If a worker crashes after provider accept but before persisting `provider_task_id`, the row becomes manual-only rather than auto-retried; a future reconciliation command is still needed.
 - Poll errors do not back off beyond `min(poll_interval, 1.0)` sleep, which is fine for tests but not ideal for production.
-- Download retry semantics are not explicit.
+- Download retry is now explicit for existing provider tasks through `generation_service.recover_generation_submission()` and `scripts/v3/recover_real_seedance_submission.py`.
 - There is no provider-side reconciliation command for `unknown_submission_state`.
+
+Download recovery finding from the first real task:
+
+- Ark returned a temporary signed TOS video URL.
+- The first implementation sanitized the status response before runtime extraction, stripping the query string needed for authorized download.
+- Recovery now keeps the raw provider status response in memory, sanitizes only database/log persistence, and re-queries the existing task before download.
+- The recovery script prints `NO NEW PROVIDER SUBMISSION` and does not contain a provider creation path.
 
 ## 9. Storage Gap Analysis
 
@@ -379,7 +394,7 @@ Current mapping by file:
 - `test_productization.py` (7): UI surfaces, readiness secrecy, storage rejection, traversal blocking, workflow smoke
 - `test_prompt_compiler.py` (11): prompt limits, templates, conflict detection, payload resolution field, error redaction
 - `test_provider_and_preflight.py` (5): fail-open/fail-closed policy and provider capability checks
-- `test_real_provider_alpha.py` (30): paid confirmation, idempotency, HTTPS reference URLs, unknown state, worker polling reuse, crash replay, budget ordering, database constraints, inspector safety
+- `test_real_provider_alpha.py` (37): paid confirmation, idempotency, HTTPS reference URLs, unknown state, worker polling reuse, crash replay, budget ordering, database constraints, download recovery, inspector safety
 - `test_v3_routes.py` (9): V3 routing, migrations, project creation, invalidation behavior
 - `test_v3_schemas.py` (14): schema validation and planner helper behavior
 
@@ -395,8 +410,8 @@ Remaining high-priority missing tests:
 
 1. Successful local file serving through `/v3/storage/local/...` needs a positive-path test; current route references `storage.base_dir`, but `LocalStorage` does not define it.
 2. Provider reconciliation command for `unknown_submission_state` is not implemented or tested.
-3. Real Ark paid task status mapping still needs one manually authorized single-shot validation.
-4. Real provider download URL expiry and redownload recovery need live-provider evidence.
+3. Real provider download recovery has one successful live example, but URL lifetime behavior still needs longer-window evidence.
+4. Object storage upload/download behavior is not implemented or tested.
 5. Long-running worker soak behavior is not covered.
 
 Medium-priority missing tests:
@@ -469,31 +484,30 @@ Resolved in state-machine hardening commit:
 Remaining high-risk gaps:
 
 1. No operator reconciliation workflow exists yet for `unknown_submission_state`.
-2. Real Ark task status, output URL, and usage response shape have not been validated with a paid task.
+2. Only one real Ark task has been validated; broader product and provider-state coverage is still missing.
 3. Local-only storage still blocks production-grade asset URLs and generated video durability.
 
 ## 15. Recommended Development Order
 
-1. Re-run Payload Inspector with a real public HTTPS image and inspect the exact Ark payload
-2. Run one manually authorized 5-second 720p paid test
-3. Verify polling, download, Take creation, usage event, and recovery behavior on the real provider
-4. Implement object storage and public HTTPS asset URLs
-5. Add local-image auto-upload to object storage
-6. Implement operator reconciliation for `unknown_submission_state`
-7. Perform long-running worker soak tests
-8. Expand real-product validation batch coverage
-9. Add external authentication/authorization
-10. Prepare production deployment
+1. Implement object storage and public HTTPS asset URLs
+2. Add local-image auto-upload to object storage
+3. Persist generated videos to object storage after download
+4. Implement operator reconciliation for `unknown_submission_state`
+5. Perform long-running worker soak tests
+6. Expand real-product validation batch coverage
+7. Add external authentication/authorization
+8. Prepare production deployment
 
 ## 16. Single Next Recommended Task
 
-**Run the safe Payload Inspector with a real public HTTPS product image and manually inspect the Ark payload.**
+**Start object storage integration for durable public HTTPS assets and generated videos.**
 
 Scope of that task:
 
-- provide or choose a stable public HTTPS product image URL
-- run only `scripts/v3/inspect_real_seedance_payload.py`
-- verify prompt, `content[].image_url.url`, duration, resolution, ratio, and model fields
-- confirm no `submit_task()`, no `requests.post()`, no real task ID, and no cost
+- add a minimal object storage adapter, preferably S3-compatible with Cloudflare R2 as the alpha target
+- upload local product reference images and store stable object keys plus public or signed HTTPS URLs
+- upload recovered/generated videos after local download
+- keep local development compatible with `LocalStorage`
+- ensure no provider resubmission is introduced by storage retries
 
-That is the highest-leverage next step because the state-machine safety gate is now covered by automated tests, while the final payload shape still needs a real public image URL before a paid Ark call is justified.
+That is the highest-leverage next step because the first real provider task has proven submit, polling, download recovery, Take creation, and usage recording, while local-only files still block production durability.

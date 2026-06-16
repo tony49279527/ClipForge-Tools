@@ -142,7 +142,7 @@ class ArkSeedanceProvider(VideoGenerationProvider):
             timeout=60,
         )
         response.raise_for_status()
-        return _sanitize(response.json())
+        return response.json()
 
     def cancel_task(self, task_id: str) -> dict[str, Any]:
         return {"task_id": task_id, "cancelled": False, "message": "Provider cancel not implemented for Ark endpoint."}

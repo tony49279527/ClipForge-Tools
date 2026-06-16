@@ -7,6 +7,7 @@ import hashlib
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 import requests
 
@@ -286,6 +287,42 @@ def _download_provider_video(video_url: str, project_id: int, shot: dict, take_n
     return str(video_path), qc_paths
 
 
+def _safe_url_context(url: str | None) -> dict:
+    if not url:
+        return {"has_url": False}
+    parsed = urlsplit(url)
+    return {
+        "has_url": True,
+        "scheme": parsed.scheme,
+        "host": parsed.netloc,
+        "path": parsed.path,
+        "has_query": bool(parsed.query),
+        "query_keys": sorted({key for key, _value in parse_qsl(parsed.query, keep_blank_values=True)}),
+    }
+
+
+def _safe_download_error(error: Exception, video_url: str | None) -> dict:
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", {}) or {}
+    history = getattr(response, "history", []) or []
+    return {
+        "code": "download_failed",
+        "message": sanitize(str(error)),
+        "http_status": getattr(response, "status_code", None),
+        "content_type": headers.get("content-type") or headers.get("Content-Type"),
+        "content_length": headers.get("content-length") or headers.get("Content-Length"),
+        "url": _safe_url_context(getattr(response, "url", None) or video_url),
+        "redirects": [
+            {
+                "status": getattr(item, "status_code", None),
+                "url": _safe_url_context(getattr(item, "url", None)),
+            }
+            for item in history
+        ],
+        "recovery": "download_recovery_required",
+    }
+
+
 def compile_prompt(*, project_id: int, shot_id: int) -> dict:
     project = dict(project_repository.get_project(project_id))
     shots = {shot["id"]: shot for shot in list_shots(project_id)}
@@ -451,7 +488,7 @@ def _ensure_provider_usage_event(
     shot: dict,
     prompt_version: dict,
     provider,
-    take_id: int,
+    take_id: int | None,
     status_response: dict,
 ) -> int:
     return project_repository.create_usage_event(
@@ -530,9 +567,30 @@ def _finalize_provider_success(
             },
         )
         return {"submission_id": submission_id, "status": "failed", "error": "missing_video_url"}
+    _ensure_provider_usage_event(
+        submission=submission,
+        project=project,
+        shot=shot,
+        prompt_version=prompt_version,
+        provider=provider,
+        take_id=None,
+        status_response=status_response,
+    )
     take_repository.update_generation_submission(submission_id, {"submission_status": "downloading", "response_json": sanitize(status_response)})
     take_number = take_repository.get_next_take_number(shot["id"])
-    local_path, qc_paths = _download_provider_video(video_url, project["id"], shot, take_number)
+    try:
+        local_path, qc_paths = _download_provider_video(video_url, project["id"], shot, take_number)
+    except Exception as exc:
+        error_json = _safe_download_error(exc, video_url)
+        take_repository.update_generation_submission(
+            submission_id,
+            {
+                "submission_status": "download_failed",
+                "error_json": error_json,
+                "response_json": sanitize(status_response),
+            },
+        )
+        return {"submission_id": submission_id, "status": "download_recovery_required", "error": "download_failed", "http_status": error_json.get("http_status")}
     first_frame_path = qc_paths[0]
     last_frame_path = qc_paths[1]
     take, created = take_repository.get_or_create_take_for_submission(
@@ -835,3 +893,39 @@ def process_generation_submission(submission_id: int) -> dict:
         time.sleep(min(poll_interval, 1.0))
     take_repository.update_generation_submission(submission_id, {"submission_status": "poll_timeout", "error_json": {"code": "poll_timeout", "message": "Provider polling timed out."}, "submission_completed_at": utc_now(), "response_json": sanitize(final_response)})
     return {"submission_id": submission_id, "status": "poll_timeout", "error": "poll_timeout"}
+
+
+def recover_generation_submission(submission_id: int) -> dict:
+    submission = take_repository.get_generation_submission(submission_id)
+    if not submission:
+        raise KeyError(f"Generation submission {submission_id} not found")
+    if not submission.get("provider_task_id"):
+        return _manual_reconciliation_response(submission, reason="provider_task_id_required")
+    project = dict(project_repository.get_project(submission["project_id"]))
+    shot = next(item for item in list_shots(submission["project_id"]) if item["id"] == submission["shot_id"])
+    prompt_version = _decode_prompt_version(dict(shot_repository.get_prompt_version(submission["prompt_version_id"])))
+    provider = get_provider()
+    status_response = provider.get_task_status(submission["provider_task_id"])
+    extracted = provider.extract_result(status_response)
+    status = (extracted.get("status") or "").lower()
+    if status in {"succeeded", "success", "completed"}:
+        return _finalize_provider_success(
+            submission_id=submission_id,
+            project=project,
+            shot=shot,
+            prompt_version=prompt_version,
+            provider=provider,
+            status_response=status_response,
+        )
+    if status in {"failed", "cancelled", "canceled"}:
+        terminal = "cancelled" if status in {"cancelled", "canceled"} else "failed"
+        take_repository.update_generation_submission(
+            submission_id,
+            {"submission_status": terminal, "response_json": sanitize(status_response), "submission_completed_at": utc_now()},
+        )
+        return {"submission_id": submission_id, "status": terminal}
+    take_repository.update_generation_submission(
+        submission_id,
+        {"submission_status": "polling", "last_poll_at": utc_now(), "response_json": sanitize(status_response)},
+    )
+    return {"submission_id": submission_id, "status": "polling", "provider_status": status or "unknown"}

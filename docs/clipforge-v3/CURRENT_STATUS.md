@@ -3,7 +3,7 @@
 ## Current State
 
 - Current development branch: `clipforge-v3-real-provider-alpha`
-- Current branch HEAD at start of state-machine hardening pass: `0edbaae4ab5c75961fa7e64ffe34843c3acd17e1`
+- Current branch HEAD at start of download recovery pass: `7df78643fe33b1c6fc9fd1c58ecf97e1ee5a2eeb`
 - Last verified functional baseline: `b18b6974fd63f748fe37a140644f8b83c212efc8`
 - ClipForge 3.0 is in Real Provider Alpha.
 - Mock workflow is runnable.
@@ -17,7 +17,11 @@
 - Usage/cost persistence is now idempotent per generation submission.
 - Budget check now runs before real-provider reservation for new submissions.
 - New real-provider constraints include `v3_generation_submissions.budget_approved_at`, `v3_takes.generation_submission_id UNIQUE`, and `v3_usage_events.event_key UNIQUE`.
-- Real paid Seedance testing has not been executed yet.
+- One real paid Seedance task has been executed.
+- The provider task succeeded; the first local download failed with `403` because a signed result URL was sanitized before download.
+- Existing-task recovery now re-queries the provider task, preserves the runtime signed URL for download, and guarantees `NO NEW PROVIDER SUBMISSION`.
+- The recovered real task downloaded successfully, created one Take, and recorded one provider generation usage/cost event.
+- Real provider task count remains `1`.
 
 ## Verified Commands
 
@@ -31,8 +35,8 @@ python3 scripts/v3/inspect_real_seedance_payload.py
 Current recorded results:
 
 - V3: `84 passed`
-- V3 after state-machine hardening: `94 passed`
-- Real Provider Alpha: `30 passed`
+- V3 after download recovery hardening: `101 passed`
+- Real Provider Alpha: `37 passed`
 - Legacy routes: `3 passed`
 
 ## Safe Payload Inspection
@@ -50,13 +54,11 @@ This inspector:
 
 ## Next Tasks
 
-1. Use a real public product image to run Payload Inspector.
-2. Manually inspect the final Ark Payload format.
-3. Review the readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
-4. Run one 5-second, 720p, single-shot real paid test only after explicit human authorization.
-5. Check task ID, polling, download, Take, and cost records.
-6. Consider object storage only after the single-shot test succeeds.
-7. Do not deploy production before object storage is complete.
+1. Review the readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
+2. Start object storage integration for durable uploaded assets and generated videos.
+3. Add local-image auto-upload to object storage after the storage adapter is in place.
+4. Add long-running worker soak tests.
+5. Do not deploy production before object storage is complete.
 
 ## Real Paid Test Protection
 

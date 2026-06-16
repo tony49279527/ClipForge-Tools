@@ -254,12 +254,15 @@ def create_usage_event(payload: dict[str, Any]) -> int:
             conn.close()
             raise
         conn.rollback()
-        cur.execute("SELECT id FROM v3_usage_events WHERE event_key = ?", (event_key,))
+        cur.execute("SELECT id, take_id FROM v3_usage_events WHERE event_key = ?", (event_key,))
         row = cur.fetchone()
         if not row:
             conn.close()
             raise
         event_id = int(row["id"])
+        if payload.get("take_id") and row["take_id"] is None:
+            cur.execute("UPDATE v3_usage_events SET take_id = ? WHERE id = ?", (payload.get("take_id"), event_id))
+            conn.commit()
     conn.close()
     return event_id
 

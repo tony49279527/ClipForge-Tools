@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 from pathlib import Path
 import requests
 
@@ -102,6 +103,14 @@ def _content_image_urls(payload: dict) -> list[str]:
         if entry.get("type") == "image_url":
             urls.append(entry.get("image_url", {}).get("url"))
     return urls
+
+
+def _load_inspector_module():
+    spec = importlib.util.spec_from_file_location("inspect_real_seedance_payload", Path("scripts/v3/inspect_real_seedance_payload.py"))
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_paid_confirmation_required(client, db_conn, buffing_wheel_payload, sample_image_file, monkeypatch):
@@ -341,10 +350,67 @@ def test_mock_mode_never_submits_even_if_ark_key_exists(client, db_conn, buffing
     assert row["provider"] == "mock"
 
 
+def test_inspector_accepts_public_https_url_and_builds_payload(app_env, monkeypatch):
+    inspector = _load_inspector_module()
+    image_url = "https://cdn.example.com/products/buffing-wheel.jpg"
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "ark")
+    summary = inspector.build_payload_summary(image_url)
+    assert summary["preflight_passed"] is True
+    assert summary["ready_for_paid_submission"] is True
+    assert summary["reference_count"] >= 1
+    assert summary["reference_1_role"] == "product_identity"
+    assert summary["reference_1_source_type"] == "image_url"
+    assert summary["reference_1_host"] == "cdn.example.com"
+    assert summary["reference_1_has_actual_image_url"] is True
+    assert image_url in _content_image_urls(summary["payload"])
+
+
+def test_inspector_does_not_call_provider_submission():
+    source = Path("scripts/v3/inspect_real_seedance_payload.py").read_text(encoding="utf-8")
+    assert "submit_task(" not in source
+    assert "submit_generation(" not in source
+    assert "requests.post" not in source
+
+
+def test_inspector_missing_url_exits_safely(monkeypatch, capsys):
+    inspector = _load_inspector_module()
+    monkeypatch.delenv("V3_REAL_TEST_IMAGE_URL", raising=False)
+    assert inspector.main() == 2
+    assert "V3_REAL_TEST_IMAGE_URL" in capsys.readouterr().out
+
+
+def test_inspector_rejects_unsafe_urls(monkeypatch, capsys):
+    inspector = _load_inspector_module()
+    for image_url in [
+        "http://cdn.example.com/product.jpg",
+        "https://localhost/product.jpg",
+        "https://127.0.0.1/product.jpg",
+        "https://10.1.2.3/product.jpg",
+    ]:
+        monkeypatch.setenv("V3_REAL_TEST_IMAGE_URL", image_url)
+        assert inspector.main() == 2
+        assert "invalid V3_REAL_TEST_IMAGE_URL" in capsys.readouterr().out
+
+
+def test_inspector_output_redacts_api_key_and_signed_query(app_env, monkeypatch, capsys):
+    inspector = _load_inspector_module()
+    image_url = "https://signed.example.com/path/product.jpg?X-Amz-Signature=secret-query"
+    monkeypatch.setenv("ARK_API_KEY", "super-secret-key")
+    summary = inspector.build_payload_summary(image_url)
+    inspector.print_summary(summary)
+    output = capsys.readouterr().out
+    assert "super-secret-key" not in output
+    assert "X-Amz-Signature" not in output
+    assert "secret-query" not in output
+    assert "signed.example.com" in output
+    assert image_url in _content_image_urls(summary["payload"])
+
+
 def test_manual_real_seedance_script_uses_paid_confirmation_contract_fields():
     script = Path("scripts/v3/test_real_seedance_single_shot.py").read_text(encoding="utf-8")
     assert "confirmation['shot']" not in script
     assert 'confirmation["shot"]' not in script
     assert "confirmation['shot_id']" in script or 'confirmation["shot_id"]' in script
-    assert "confirmation['shot_db_id']" in script or 'confirmation["shot_db_id"]' in script
     assert "confirmation['confirmation_token']" in script or 'confirmation["confirmation_token"]' in script
+    assert '"remote_url": image_url' in script
+    assert "Image.new" not in script

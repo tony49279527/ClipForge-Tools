@@ -19,7 +19,7 @@ def _is_private_or_loopback_host(hostname: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast
 
 
-def _validate_https_url(url: str | None) -> tuple[bool, str]:
+def validate_public_https_url(url: str | None) -> tuple[bool, str]:
     if not url:
         return False, "empty_url"
     parsed = urlparse(url)
@@ -32,7 +32,7 @@ def _validate_https_url(url: str | None) -> tuple[bool, str]:
     return True, ""
 
 
-def _safe_url_preview(url: str | None) -> dict:
+def safe_url_preview(url: str | None) -> dict:
     if not url:
         return {"has_source": False}
     parsed = urlparse(url)
@@ -51,7 +51,7 @@ def resolve_provider_reference(asset: dict | None, role: dict, *, label: str) ->
     primary_role = role.get("primary_role") or (asset or {}).get("primary_role")
     fail_policy = "closed" if primary_role in FAIL_CLOSED_ROLES else "open"
     source_url = (asset or {}).get("remote_url") or (asset or {}).get("access_url")
-    valid, reason = _validate_https_url(source_url)
+    valid, reason = validate_public_https_url(source_url)
     resolved = {
         "asset_id": role.get("asset_id") or (asset or {}).get("id"),
         "label": label,
@@ -63,7 +63,7 @@ def resolve_provider_reference(asset: dict | None, role: dict, *, label: str) ->
         "fail_policy": fail_policy,
         "available": valid,
         "unavailable_reason": "" if valid else reason,
-        "preview": _safe_url_preview(source_url if valid else None),
+        "preview": safe_url_preview(source_url if valid else None),
     }
     return resolved
 
@@ -95,3 +95,7 @@ def provider_asset_source_issues(resolved_references: list[dict]) -> list[dict]:
                 }
             )
     return issues
+
+
+_validate_https_url = validate_public_https_url
+_safe_url_preview = safe_url_preview

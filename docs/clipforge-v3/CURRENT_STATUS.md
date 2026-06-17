@@ -34,6 +34,10 @@
 - Maintenance write-freeze support is implemented behind `CLIPFORGE_MAINTENANCE_MODE=false` by default. When enabled, read-only GET pages and health checks remain available while business write requests, queue enqueue, and provider-generation worker starts are blocked.
 - Production database cutover safety tooling is implemented as dry-run/read-only tooling only: consistent SQLite snapshot creation, cutover preflight checks, dry-run cutover plan, rollback boundary planning, and a production cutover runbook. Production Cloud Run has not been modified and production data has not been migrated.
 - Production cutover Go/No-Go review is recorded at `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`. Current conclusion is `CONDITIONAL GO`: tooling is ready for the next authorized preparation step, but immediate cutover remains blocked until maintenance mode, final Cloud SQL, final snapshot, import validation, and tagged revision checks are complete.
+- A production-candidate Cloud SQL PostgreSQL instance has been created and documented at `docs/clipforge-v3/PRODUCTION_POSTGRES_CANDIDATE.md`, but production traffic has not been switched to PostgreSQL.
+- A real maintenance freeze was validated only after deploying current source as revision `clipforge-tools-00106-gnn`; the older production image did not enforce maintenance mode from an env-only revision.
+- A final candidate SQLite snapshot was created and validated, but PostgreSQL import is blocked because the production SQLite `jobs` table contains historical Legacy columns such as `creative_prompt` that are missing from current PostgreSQL schema initialization.
+- Traffic was restored to the preserved SQLite revision `clipforge-tools-00104-hwm` after the import blocker was found.
 - Cloud Run database persistence is still not production-safe: `/data/clipforge.db` is on a GCSFuse mount, and earlier SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors.
 - Offline integrity check of a copied `clipforge.db` returned `ok`, but that only proves the copied main database file was readable at audit time; it does not make GCSFuse-backed SQLite safe for writes.
 - `DATABASE_URL`-driven SQLite/PostgreSQL backend selection is now implemented in code using SQLAlchemy Core and `psycopg`, while local development and automated tests continue to default to SQLite.
@@ -71,6 +75,7 @@ Current recorded results:
 - Cutover safety tools: `scripts/v3/create_consistent_sqlite_snapshot.py`, `scripts/v3/preflight_production_postgres_cutover.py`, `scripts/v3/cutover_sqlite_to_cloudsql.py`, `scripts/v3/plan_postgres_cutover_rollback.py`
 - Production database cutover runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`
 - Production cutover Go/No-Go review: `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`
+- Production PostgreSQL candidate attempt: `docs/clipforge-v3/PRODUCTION_POSTGRES_CANDIDATE.md`
 
 ## Safe Payload Inspection
 
@@ -96,8 +101,10 @@ This inspector:
 7. Review Cloud SQL PostgreSQL test rehearsal: `docs/clipforge-v3/CLOUD_SQL_TEST_REHEARSAL.md`
 8. Review the production database cutover runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`
 9. Review the production cutover Go/No-Go decision: `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`
-10. In a maintenance window, create a consistent SQLite backup, migrate to a final Cloud SQL PostgreSQL instance, and switch a new Cloud Run revision to Secret Manager-backed `DATABASE_URL`.
-11. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
+10. Review the production PostgreSQL candidate attempt: `docs/clipforge-v3/PRODUCTION_POSTGRES_CANDIDATE.md`
+11. Fix Legacy PostgreSQL schema compatibility for historical production SQLite columns before any PostgreSQL traffic cutover attempt.
+12. In a maintenance window, create a new consistent SQLite backup, migrate to the Cloud SQL PostgreSQL candidate instance, and validate a tagged PostgreSQL revision before any traffic switch.
+13. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
 
 ## Real Paid Test Protection
 
@@ -121,7 +128,8 @@ Automatic repeated tests are forbidden.
 ## Not Complete
 
 - Private R2 video playback/download UI integration
-- Production Cloud SQL PostgreSQL instance and cutover
+- Legacy production SQLite schema parity for PostgreSQL import
+- Production Cloud SQL PostgreSQL cutover
 - Production Cloud Run switch to PostgreSQL
 - R2 token rotation after migration from plaintext Cloud Run env vars to Secret Manager
 - Batch real-product validation

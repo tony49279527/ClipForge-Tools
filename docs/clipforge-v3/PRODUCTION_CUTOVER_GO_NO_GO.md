@@ -11,6 +11,8 @@
 
 This review did not create Cloud SQL resources, modify Cloud Run, enable maintenance mode, set production `DATABASE_URL`, migrate data, call Ark/Seedance, or run paid generation.
 
+Follow-up on 2026-06-17: a production-candidate Cloud SQL instance was created and a candidate SQLite snapshot was validated, but formal PostgreSQL import failed because the current PostgreSQL Legacy schema is missing historical production `jobs` columns such as `creative_prompt`. Traffic was restored to the preserved SQLite revision. The current decision is `NO CUTOVER` until Legacy schema parity is fixed and the import validation passes.
+
 ## 2. Current Cloud Run State
 
 Read-only Cloud Run checks used explicit project and region flags:
@@ -208,14 +210,14 @@ This is the correct rollback boundary for avoiding split-brain data loss.
 
 ## 10. Unresolved Issues
 
-- Production Cloud SQL PostgreSQL instance has not been created.
-- Production `DATABASE_URL` has not been created or attached to Cloud Run.
-- Final production database password Secret for `DATABASE_URL` has not been validated.
-- Production SQLite has not been frozen with maintenance mode.
-- Final consistent snapshot of `/data/clipforge.db` has not been created.
-- Production data has not been exported, imported, or validated against final PostgreSQL.
+- Production Cloud SQL PostgreSQL instance has been created, but formal import has not succeeded.
+- Production `DATABASE_URL` Secret has been created, but it has not been attached to a traffic-serving Cloud Run revision.
+- Final production database password Secret and `DATABASE_URL` Secret exist, but the traffic-serving revision does not use them.
+- Production SQLite was frozen only after deploying current source as a maintenance revision; an env-only update to the older image did not enforce write freeze.
+- Final candidate SQLite snapshot has been created and validated.
+- Production data has been exported, but import/validation against final PostgreSQL is blocked by Legacy schema mismatch.
 - Tagged `0%` PostgreSQL Cloud Run revision has not been deployed or checked.
-- Maintenance mode is currently false, so cutover preflight must fail.
+- Production traffic has been restored to the preserved SQLite revision, so maintenance mode is not currently serving normal traffic.
 - SQLite on GCSFuse remains unsafe for production writes until cutover completes.
 
 ## 11. Formal Cloud SQL Specification Decisions

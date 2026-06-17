@@ -147,6 +147,13 @@ Rehearsal tools:
 
 The import tool is dry-run by default and requires explicit confirmation before writing. It refuses SQLite targets and refuses non-local PostgreSQL targets for this rehearsal phase.
 
+Production-candidate update on 2026-06-17:
+
+- A Cloud SQL PostgreSQL 16 candidate instance was created.
+- A validated SQLite snapshot was exported successfully.
+- Formal PostgreSQL import failed on Legacy schema parity: production `jobs` rows include historical columns such as `creative_prompt` that current PostgreSQL schema initialization does not create.
+- The next migration task is to make Legacy PostgreSQL schema initialization match the historical production SQLite schema before any further cutover attempt.
+
 ## 11. Cloud SQL Connection Plan
 
 Use Secret Manager or Cloud Run secret environment variables for `DATABASE_URL`. Do not print or commit database credentials.

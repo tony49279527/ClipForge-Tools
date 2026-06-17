@@ -33,6 +33,7 @@
 - Cloud Run has temporary SQLite/GCSFuse safeguards: container concurrency is `1` and max instances is `1`.
 - Maintenance write-freeze support is implemented behind `CLIPFORGE_MAINTENANCE_MODE=false` by default. When enabled, read-only GET pages and health checks remain available while business write requests, queue enqueue, and provider-generation worker starts are blocked.
 - Production database cutover safety tooling is implemented as dry-run/read-only tooling only: consistent SQLite snapshot creation, cutover preflight checks, dry-run cutover plan, rollback boundary planning, and a production cutover runbook. Production Cloud Run has not been modified and production data has not been migrated.
+- Production cutover Go/No-Go review is recorded at `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`. Current conclusion is `CONDITIONAL GO`: tooling is ready for the next authorized preparation step, but immediate cutover remains blocked until maintenance mode, final Cloud SQL, final snapshot, import validation, and tagged revision checks are complete.
 - Cloud Run database persistence is still not production-safe: `/data/clipforge.db` is on a GCSFuse mount, and earlier SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors.
 - Offline integrity check of a copied `clipforge.db` returned `ok`, but that only proves the copied main database file was readable at audit time; it does not make GCSFuse-backed SQLite safe for writes.
 - `DATABASE_URL`-driven SQLite/PostgreSQL backend selection is now implemented in code using SQLAlchemy Core and `psycopg`, while local development and automated tests continue to default to SQLite.
@@ -69,6 +70,7 @@ Current recorded results:
 - Maintenance write-freeze tests: `tests/v3/test_maintenance_mode.py`
 - Cutover safety tools: `scripts/v3/create_consistent_sqlite_snapshot.py`, `scripts/v3/preflight_production_postgres_cutover.py`, `scripts/v3/cutover_sqlite_to_cloudsql.py`, `scripts/v3/plan_postgres_cutover_rollback.py`
 - Production database cutover runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`
+- Production cutover Go/No-Go review: `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`
 
 ## Safe Payload Inspection
 
@@ -93,8 +95,9 @@ This inspector:
 6. Review Cloud Run Secret Manager hardening: `docs/clipforge-v3/CLOUD_RUN_SECRET_HARDENING.md`
 7. Review Cloud SQL PostgreSQL test rehearsal: `docs/clipforge-v3/CLOUD_SQL_TEST_REHEARSAL.md`
 8. Review the production database cutover runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`
-9. In a maintenance window, create a consistent SQLite backup, migrate to a final Cloud SQL PostgreSQL instance, and switch a new Cloud Run revision to Secret Manager-backed `DATABASE_URL`.
-9. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
+9. Review the production cutover Go/No-Go decision: `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`
+10. In a maintenance window, create a consistent SQLite backup, migrate to a final Cloud SQL PostgreSQL instance, and switch a new Cloud Run revision to Secret Manager-backed `DATABASE_URL`.
+11. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
 
 ## Real Paid Test Protection
 

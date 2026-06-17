@@ -211,6 +211,8 @@ The full `tests/v3/test_postgresql_integration.py` run timed out on the remote `
 
 Detailed report: `docs/clipforge-v3/CLOUD_SQL_TEST_REHEARSAL.md`.
 
+Operational runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`.
+
 ## 15. Known Incomplete Items
 
 - No production data has been migrated.

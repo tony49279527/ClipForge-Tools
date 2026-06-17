@@ -198,6 +198,7 @@ Object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
 Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
 PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
 Temporary database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
+Production database cutover runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`
 
 - `docs/clipforge-v3/README.md`
 - `docs/clipforge-v3/user-guide-zh.md`

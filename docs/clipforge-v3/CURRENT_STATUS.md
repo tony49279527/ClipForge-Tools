@@ -36,7 +36,11 @@
 - Production cutover Go/No-Go review is recorded at `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`. Current conclusion is `CONDITIONAL GO`: tooling is ready for the next authorized preparation step, but immediate cutover remains blocked until maintenance mode, final Cloud SQL, final snapshot, import validation, and tagged revision checks are complete.
 - A production-candidate Cloud SQL PostgreSQL instance has been created and documented at `docs/clipforge-v3/PRODUCTION_POSTGRES_CANDIDATE.md`, but production traffic has not been switched to PostgreSQL.
 - A real maintenance freeze was validated only after deploying current source as revision `clipforge-tools-00106-gnn`; the older production image did not enforce maintenance mode from an env-only revision.
-- A final candidate SQLite snapshot was created and validated, but PostgreSQL import is blocked because the production SQLite `jobs` table contains historical Legacy columns such as `creative_prompt` that are missing from current PostgreSQL schema initialization.
+- A final candidate SQLite snapshot was created and validated. The initial PostgreSQL import was blocked because the production SQLite `jobs` table contains historical Legacy columns such as `creative_prompt`; this Legacy schema parity issue has now been fixed in commit `e78713046c53872d2f49d1bff887f7157ce9f3af`.
+- The existing production candidate snapshot was formally imported into the Cloud SQL candidate database after the schema fix; migration validation and schema compare both passed.
+- A 0% tagged PostgreSQL Cloud Run candidate revision `clipforge-tools-00109-wij` now starts successfully with Secret Manager-backed `DATABASE_URL`; it has not received production traffic.
+- The first PostgreSQL candidate revision `clipforge-tools-00108-sir` failed startup because the `DATABASE_URL` Secret had a malformed Cloud SQL Unix socket host. Secret version `2` corrected the URL without printing or committing the value.
+- The `clipforge-tools-00109-wij` tag returned HTTP `200` for `/` and `/v3/ready`; `/v3/ready` reported database `ok`, Redis/worker unavailable, and storage backend `local` despite R2 environment variables being present. This storage readiness mismatch must be investigated before any PostgreSQL traffic switch.
 - Traffic was restored to the preserved SQLite revision `clipforge-tools-00104-hwm` after the import blocker was found.
 - Cloud Run database persistence is still not production-safe: `/data/clipforge.db` is on a GCSFuse mount, and earlier SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors.
 - Offline integrity check of a copied `clipforge.db` returned `ok`, but that only proves the copied main database file was readable at audit time; it does not make GCSFuse-backed SQLite safe for writes.
@@ -45,7 +49,7 @@
 - GitHub Actions PostgreSQL integration workflow is configured with a PostgreSQL 16 service container. Local runs skip PostgreSQL integration unless `POSTGRES_TEST_DATABASE_URL` is set.
 - SQLite export, PostgreSQL import, schema compare, and migration validation rehearsal tools exist under `scripts/v3/`.
 - A Cloud SQL PostgreSQL 16 test instance rehearsal has been completed and the test instance was deleted afterward.
-- Production Cloud Run has not been switched to PostgreSQL, no production Cloud SQL database is active, and production SQLite data has not been migrated.
+- Production Cloud Run has not been switched to PostgreSQL. The Cloud SQL candidate database contains an imported production candidate snapshot for validation, but the traffic-serving production revision remains SQLite.
 
 ## Verified Commands
 
@@ -102,8 +106,8 @@ This inspector:
 8. Review the production database cutover runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`
 9. Review the production cutover Go/No-Go decision: `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`
 10. Review the production PostgreSQL candidate attempt: `docs/clipforge-v3/PRODUCTION_POSTGRES_CANDIDATE.md`
-11. Fix Legacy PostgreSQL schema compatibility for historical production SQLite columns before any PostgreSQL traffic cutover attempt.
-12. In a maintenance window, create a new consistent SQLite backup, migrate to the Cloud SQL PostgreSQL candidate instance, and validate a tagged PostgreSQL revision before any traffic switch.
+11. Investigate why the PostgreSQL candidate tag reports LocalStorage while R2 variables are present, and verify Redis/worker production readiness.
+12. In a maintenance window, create a fresh consistent SQLite backup, import it into Cloud SQL PostgreSQL, validate a tagged PostgreSQL revision, and keep traffic at `0%` until all cutover gates pass.
 13. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
 
 ## Real Paid Test Protection
@@ -128,9 +132,9 @@ Automatic repeated tests are forbidden.
 ## Not Complete
 
 - Private R2 video playback/download UI integration
-- Legacy production SQLite schema parity for PostgreSQL import
 - Production Cloud SQL PostgreSQL cutover
 - Production Cloud Run switch to PostgreSQL
+- PostgreSQL candidate storage readiness mismatch: tag currently reports `local` storage although R2 variables are configured
 - R2 token rotation after migration from plaintext Cloud Run env vars to Secret Manager
 - Batch real-product validation
 - Long-running Worker tests

@@ -11,7 +11,7 @@
 
 This review did not create Cloud SQL resources, modify Cloud Run, enable maintenance mode, set production `DATABASE_URL`, migrate data, call Ark/Seedance, or run paid generation.
 
-Follow-up on 2026-06-17: a production-candidate Cloud SQL instance was created and a candidate SQLite snapshot was validated, but formal PostgreSQL import failed because the current PostgreSQL Legacy schema is missing historical production `jobs` columns such as `creative_prompt`. Traffic was restored to the preserved SQLite revision. The current decision is `NO CUTOVER` until Legacy schema parity is fixed and the import validation passes.
+Follow-up on 2026-06-17: a production-candidate Cloud SQL instance was created and a candidate SQLite snapshot was validated. The first formal PostgreSQL import failed because the current PostgreSQL Legacy schema was missing historical production `jobs` columns such as `creative_prompt`; that schema parity blocker was fixed in `e78713046c53872d2f49d1bff887f7157ce9f3af`. The existing candidate snapshot was then imported into Cloud SQL and migration validation plus schema compare passed. A tagged 0% PostgreSQL candidate revision `clipforge-tools-00109-wij` also started and served read-only GET checks. Traffic remains on the preserved SQLite revision. The current decision is still `NO CUTOVER` until storage readiness, Redis/worker readiness, fresh maintenance-window backup/import, and final tagged-revision checks pass.
 
 ## 2. Current Cloud Run State
 
@@ -210,13 +210,14 @@ This is the correct rollback boundary for avoiding split-brain data loss.
 
 ## 10. Unresolved Issues
 
-- Production Cloud SQL PostgreSQL instance has been created, but formal import has not succeeded.
-- Production `DATABASE_URL` Secret has been created, but it has not been attached to a traffic-serving Cloud Run revision.
+- Production Cloud SQL PostgreSQL instance has been created, and the existing candidate SQLite snapshot has been imported and validated after the Legacy schema parity fix.
+- Production `DATABASE_URL` Secret has been created, and a corrected version is attached only to a tagged 0% candidate revision.
 - Final production database password Secret and `DATABASE_URL` Secret exist, but the traffic-serving revision does not use them.
 - Production SQLite was frozen only after deploying current source as a maintenance revision; an env-only update to the older image did not enforce write freeze.
 - Final candidate SQLite snapshot has been created and validated.
-- Production data has been exported, but import/validation against final PostgreSQL is blocked by Legacy schema mismatch.
-- Tagged `0%` PostgreSQL Cloud Run revision has not been deployed or checked.
+- Production data has been exported, imported into the candidate Cloud SQL database, and validated against the candidate snapshot; a fresh maintenance-window snapshot is still required before real cutover.
+- Tagged `0%` PostgreSQL Cloud Run revision `clipforge-tools-00109-wij` has been deployed and checked with `GET /` and `GET /v3/ready`.
+- Candidate `/v3/ready` reported database `ok`, but also reported Redis/worker unavailable and storage backend `local` despite `V3_STORAGE_BACKEND=r2` and dual-bucket variables being present. Do not cut traffic until this mismatch is resolved.
 - Production traffic has been restored to the preserved SQLite revision, so maintenance mode is not currently serving normal traffic.
 - SQLite on GCSFuse remains unsafe for production writes until cutover completes.
 

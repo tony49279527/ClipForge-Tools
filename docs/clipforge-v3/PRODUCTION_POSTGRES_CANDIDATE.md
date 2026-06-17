@@ -5,8 +5,9 @@
 Date: 2026-06-17
 
 Baseline commit: `13b9d53963c5344adde52b22282af0bdb6d83cc6`
+Follow-up schema parity commit: `e78713046c53872d2f49d1bff887f7157ce9f3af`
 
-This operations pass created a production-candidate Cloud SQL PostgreSQL instance and proved that a final SQLite snapshot can be taken under a real maintenance write freeze. The PostgreSQL traffic cutover was not performed. The migration is blocked because the production SQLite `jobs` table contains historical Legacy columns that the current PostgreSQL schema initialization does not create.
+This operations pass created a production-candidate Cloud SQL PostgreSQL instance and proved that a final SQLite snapshot can be taken under a real maintenance write freeze. The PostgreSQL traffic cutover was not performed. The initial migration attempt was blocked because the production SQLite `jobs` table contained historical Legacy columns that PostgreSQL schema initialization did not create. That schema parity blocker was fixed in `e78713046c53872d2f49d1bff887f7157ce9f3af`, and the existing production candidate snapshot was then imported and validated against the Cloud SQL candidate database.
 
 No Ark or Seedance task was created. No PostgreSQL Cloud Run revision received production traffic.
 
@@ -97,15 +98,27 @@ SQLite export completed:
 - Export tables: `21`
 - Export rows total: `81`
 
-Dry-run PostgreSQL import passed table emptiness checks. Formal import failed before commit and should be treated as not completed.
+Initial dry-run PostgreSQL import passed table emptiness checks. The first formal import failed before commit and should be treated as not completed.
 
-Blocking error:
+Initial blocking error:
 
 ```text
 psycopg.errors.UndefinedColumn: column "creative_prompt" of relation "jobs" does not exist
 ```
 
-The production SQLite export includes historical Legacy `jobs` columns such as `creative_prompt`. Current PostgreSQL schema initialization does not create those columns. Therefore the migration cannot proceed until Legacy schema compatibility is fixed and re-validated against the production snapshot.
+The production SQLite export includes historical Legacy `jobs` columns such as `creative_prompt`. The blocker was resolved by adding the missing production-history columns to Legacy schema initialization and by adding regression coverage for `create_job()`.
+
+Follow-up validation after `e78713046c53872d2f49d1bff887f7157ce9f3af`:
+
+- Formal import into the Cloud SQL candidate database: `PASS`
+- Migration validation: `PASS`
+- Schema compare: `PASS`
+- Schema diff count: `0`
+- Imported rows:
+  - `jobs`: `18`
+  - `clips`: `30`
+  - `usage_events`: `25`
+  - V3 tables: `0` rows in this production candidate snapshot
 
 ## PostgreSQL Validation Status
 
@@ -115,14 +128,16 @@ Confirmed:
 - Empty Legacy schema initialization completed.
 - V3 schema migration completed.
 - Snapshot/export tooling works on the production candidate snapshot.
+- Historical Legacy `jobs` column parity is fixed for the exported production snapshot.
+- Formal import, migration validation, and schema compare now pass on the Cloud SQL candidate database.
+- A 0% tagged Cloud Run PostgreSQL candidate revision now starts successfully with a Secret Manager-backed `DATABASE_URL`.
 
 Not confirmed:
 
-- Formal import into candidate PostgreSQL.
-- Migration validation against candidate PostgreSQL.
-- Schema compare against candidate PostgreSQL after import.
-- 0% Cloud Run PostgreSQL tagged revision.
-- PostgreSQL read-only app validation through a tag URL.
+- Production traffic cutover to PostgreSQL.
+- PostgreSQL write behavior under production traffic.
+- Worker/Redis readiness in the PostgreSQL candidate revision.
+- R2 readiness in the PostgreSQL candidate revision: environment variables are present, but `/v3/ready` reported `Storage backend active: local` on the tag and needs a focused follow-up before traffic cutover.
 
 ## Current Runtime State After Attempt
 
@@ -131,18 +146,26 @@ Not confirmed:
 - PostgreSQL candidate instance remains created for the next attempt.
 - No production traffic was routed to PostgreSQL.
 - No Ark or Seedance request was made.
+- A first 0% PostgreSQL candidate revision `clipforge-tools-00108-sir` failed startup because the Secret Manager `DATABASE_URL` contained a malformed Cloud SQL Unix socket host. No production traffic was routed to this revision.
+- Secret `clipforge-database-url` was updated with a corrected SQLAlchemy/psycopg Cloud SQL socket URL in version `2`; the value was not printed or committed.
+- A second 0% PostgreSQL candidate revision `clipforge-tools-00109-wij` deployed from image `us-central1-docker.pkg.dev/gen-lang-client-0817070175/cloud-run-source-deploy/clipforge-tools:e787130` and started successfully.
+- `clipforge-tools-00109-wij` direct tag checks:
+  - `GET /`: HTTP `200`
+  - `GET /v3/ready`: HTTP `200`
+  - Database check: `ok`
+  - Redis and worker checks: unavailable, expected until Redis/worker production configuration is supplied
+  - Storage check: reported `local` despite `V3_STORAGE_BACKEND=r2` and dual-bucket variables being present; investigate before any PostgreSQL traffic switch
+- Traffic remains `100%` on `clipforge-tools-00104-hwm`; `clipforge-tools-00109-wij` has only the `pg-candidate` tag and `0%` traffic.
 
 ## Required Fix Before Next Attempt
 
 Single next task:
 
-Fix Legacy PostgreSQL schema compatibility for all historical production SQLite columns, then rerun the snapshot export/import/validation against the existing production snapshot before attempting any 0% PostgreSQL Cloud Run revision.
+Investigate why the PostgreSQL candidate tag reports `Storage backend active: local` even though `V3_STORAGE_BACKEND=r2` and dual-bucket variables are present, then run a no-write readiness pass on the tagged revision before considering any PostgreSQL traffic cutover.
 
 Minimum scope:
 
-- Compare production SQLite `jobs`, `clips`, `usage_events`, and other Legacy tables against PostgreSQL schema.
-- Add missing Legacy columns to schema initialization and migrations.
-- Add a migration-tool test using a fixture that includes `creative_prompt` and other historical columns.
-- Re-run full SQLite tests.
-- Re-run PostgreSQL migration rehearsal against the candidate Cloud SQL database.
-- Do not route traffic to PostgreSQL until formal import and validation pass.
+- Confirm whether the tag is using the expected R2 secret references and storage credentials.
+- Confirm `R2Storage` initializes without falling back to LocalStorage.
+- Keep `clipforge-tools-00109-wij` at `0%` traffic.
+- Do not route traffic to PostgreSQL until storage, Redis/worker, and maintenance/cutover gates are explicitly reviewed.

@@ -1,16 +1,30 @@
-import sqlite3
+from __future__ import annotations
+
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from datetime import datetime
 import os
 from pathlib import Path
+import re
+import sqlite3 as _sqlite3
 from typing import Any, Dict, List, Optional, Sequence
 from urllib.parse import urlparse
 
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
+from sqlalchemy.pool import NullPool
+
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data"))).resolve()
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 DB_URL = os.getenv("DB_URL", "")
+_ENGINE: Engine | None = None
 
 
 def _resolve_db_path() -> Path:
+    if DATABASE_URL:
+        return Path(os.getenv("DB_PATH", str(DATA_DIR / "clipforge.db"))).resolve()
     if DB_URL:
         parsed = urlparse(DB_URL)
         if parsed.scheme and parsed.scheme != "sqlite":
@@ -34,20 +48,435 @@ SQL_IDENTIFIER_ALLOWLIST = {
 }
 
 
+class DatabaseIntegrityError(_sqlite3.IntegrityError):
+    """Backend-neutral integrity error raised by the database adapter."""
+
+
+class DbRow(Mapping[str, Any]):
+    def __init__(self, values: Mapping[str, Any] | Sequence[Any], keys: Sequence[str] | None = None):
+        if isinstance(values, Mapping):
+            self._mapping = dict(values)
+            self._keys = list(values.keys())
+            self._values = [values[key] for key in self._keys]
+            return
+        if keys is None:
+            raise ValueError("DbRow sequence values require keys")
+        self._keys = list(keys)
+        self._values = list(values)
+        self._mapping = dict(zip(self._keys, self._values))
+
+    def __getitem__(self, key: str | int) -> Any:
+        if isinstance(key, int):
+            return self._values[key]
+        return self._mapping[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._keys)
+
+    def __len__(self) -> int:
+        return len(self._keys)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._mapping.get(key, default)
+
+
+def _database_url() -> str:
+    if DATABASE_URL:
+        return DATABASE_URL
+    if DB_URL:
+        parsed = urlparse(DB_URL)
+        if parsed.scheme and parsed.scheme != "sqlite":
+            raise RuntimeError("DB_URL remains SQLite-only. Use DATABASE_URL for PostgreSQL.")
+        return DB_URL
+    return f"sqlite:///{DB_PATH}"
+
+
+def _safe_database_summary(url: str | None = None) -> dict[str, Any]:
+    parsed = urlparse(url or _database_url())
+    return {
+        "dialect": parsed.scheme.split("+", 1)[0] if parsed.scheme else "sqlite",
+        "host_configured": bool(parsed.hostname),
+        "database": Path(parsed.path).name if parsed.path else "",
+    }
+
+
+def database_dialect() -> str:
+    return _safe_database_summary()["dialect"]
+
+
+def is_sqlite() -> bool:
+    return database_dialect() == "sqlite"
+
+
+def is_postgresql() -> bool:
+    return database_dialect() in {"postgresql", "postgres"}
+
+
+def _sqlite_path_from_url(url: str) -> Path:
+    parsed = urlparse(url)
+    if parsed.scheme != "sqlite":
+        return DB_PATH
+    path = parsed.path
+    if parsed.netloc:
+        path = f"/{parsed.netloc}{parsed.path}"
+    return Path(path).resolve()
+
+
+def get_engine() -> Engine:
+    global _ENGINE
+    if _ENGINE is not None:
+        return _ENGINE
+
+    url = _database_url()
+    parsed = urlparse(url)
+    dialect = parsed.scheme.split("+", 1)[0] if parsed.scheme else "sqlite"
+    if dialect == "sqlite":
+        sqlite_path = _sqlite_path_from_url(url)
+        sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        timeout = float(os.getenv("SQLITE_TIMEOUT_SECONDS", "30"))
+        _ENGINE = create_engine(
+            url,
+            connect_args={"check_same_thread": False, "timeout": timeout},
+            poolclass=NullPool,
+            future=True,
+        )
+
+        @event.listens_for(_ENGINE, "connect")
+        def _set_sqlite_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys = ON")
+            cursor.execute("PRAGMA journal_mode = WAL")
+            cursor.execute("PRAGMA busy_timeout = 30000")
+            cursor.close()
+
+        return _ENGINE
+    if dialect in {"postgresql", "postgres"}:
+        _ENGINE = create_engine(
+            url,
+            pool_pre_ping=True,
+            pool_recycle=int(os.getenv("DATABASE_POOL_RECYCLE_SECONDS", "1800")),
+            pool_size=int(os.getenv("DATABASE_POOL_SIZE", "5")),
+            max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "5")),
+            future=True,
+        )
+        return _ENGINE
+    raise RuntimeError(f"Unsupported DATABASE_URL dialect: {dialect}")
+
+
+def reset_engine_for_tests() -> None:
+    global _ENGINE
+    if _ENGINE is not None:
+        _ENGINE.dispose()
+    _ENGINE = None
+
+
+def _convert_qmark_sql(sql: str, params: Sequence[Any] | None) -> tuple[str, dict[str, Any] | Sequence[Any] | None]:
+    if params is None:
+        return sql, None
+    placeholders: list[str] = []
+    out: list[str] = []
+    in_single = False
+    in_double = False
+    in_line_comment = False
+    in_block_comment = False
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < len(sql) else ""
+        if in_line_comment:
+            out.append(ch)
+            if ch == "\n":
+                in_line_comment = False
+            i += 1
+            continue
+        if in_block_comment:
+            out.append(ch)
+            if ch == "*" and nxt == "/":
+                out.append(nxt)
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if not in_single and not in_double and ch == "-" and nxt == "-":
+            out.extend([ch, nxt])
+            in_line_comment = True
+            i += 2
+            continue
+        if not in_single and not in_double and ch == "/" and nxt == "*":
+            out.extend([ch, nxt])
+            in_block_comment = True
+            i += 2
+            continue
+        if ch == "'" and not in_double:
+            out.append(ch)
+            if in_single and nxt == "'":
+                out.append(nxt)
+                i += 2
+                continue
+            in_single = not in_single
+            i += 1
+            continue
+        if ch == '"' and not in_single:
+            out.append(ch)
+            in_double = not in_double
+            i += 1
+            continue
+        if ch == "?" and not in_single and not in_double:
+            name = f"p{len(placeholders)}"
+            placeholders.append(name)
+            out.append(f":{name}")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    if len(placeholders) != len(params):
+        raise ValueError(f"SQL placeholder count {len(placeholders)} does not match parameter count {len(params)}")
+    return "".join(out), {name: params[index] for index, name in enumerate(placeholders)}
+
+
+def _prepare_sql(sql: str) -> str:
+    stripped = sql.strip()
+    if is_postgresql():
+        sql = re.sub(
+            r"\bid\s+INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b",
+            "id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY",
+            sql,
+            flags=re.IGNORECASE,
+        )
+        if stripped.upper().startswith("INSERT OR IGNORE "):
+            sql = re.sub(r"^\s*INSERT\s+OR\s+IGNORE\s+", "INSERT ", sql, flags=re.IGNORECASE)
+            if " ON CONFLICT" not in sql.upper():
+                sql = sql.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+    return sql
+
+
+def _needs_insert_returning_id(sql: str) -> bool:
+    if not is_postgresql():
+        return False
+    normalized = sql.strip().upper()
+    if not normalized.startswith("INSERT INTO "):
+        return False
+    if " RETURNING " in normalized or " ON CONFLICT DO NOTHING" in normalized:
+        return False
+    return True
+
+
+def _pragma_table_info(table_name: str) -> list[DbRow]:
+    if table_name not in SQL_IDENTIFIER_ALLOWLIST and table_name not in _all_v3_table_names():
+        raise ValueError(f"Unsupported table for schema inspection: {table_name}")
+    if is_sqlite():
+        with get_engine().connect() as conn:
+            result = conn.exec_driver_sql(f"PRAGMA table_info({table_name})")
+            return [DbRow(row._mapping) for row in result.fetchall()]
+    with get_engine().connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT column_name, data_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_schema = CURRENT_SCHEMA() AND table_name = :table_name
+                ORDER BY ordinal_position
+                """
+            ),
+            {"table_name": table_name},
+        )
+        rows = []
+        for index, row in enumerate(result.fetchall()):
+            mapping = row._mapping
+            rows.append(
+                DbRow(
+                    {
+                        "cid": index,
+                        "name": mapping["column_name"],
+                        "type": mapping["data_type"],
+                        "notnull": 0 if mapping["is_nullable"] == "YES" else 1,
+                        "dflt_value": mapping["column_default"],
+                        "pk": 1 if mapping["column_name"] == "id" else 0,
+                    }
+                )
+            )
+        return rows
+
+
+def _all_v3_table_names() -> set[str]:
+    return {
+        "schema_migrations",
+        "v3_projects",
+        "v3_product_truth",
+        "v3_assets",
+        "v3_shots",
+        "v3_prompt_versions",
+        "v3_takes",
+        "v3_reviews",
+        "v3_continuity_states",
+        "v3_usage_events",
+        "v3_preflight_checks",
+        "v3_final_assemblies",
+        "v3_retake_plans",
+        "v3_generation_submissions",
+        "v3_operation_events",
+    }
+
+
+class DbCursor:
+    def __init__(self, connection: DbConnection):
+        self.connection = connection
+        self.lastrowid: int | None = None
+        self.rowcount: int = -1
+        self._rows: list[DbRow] = []
+        self._row_index = 0
+
+    def execute(self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None) -> DbCursor:
+        stripped = sql.strip()
+        if stripped.upper().startswith("PRAGMA TABLE_INFO"):
+            match = re.search(r"PRAGMA\s+table_info\(([^)]+)\)", stripped, re.IGNORECASE)
+            if not match:
+                raise ValueError("Unsupported PRAGMA table_info syntax")
+            table_name = match.group(1).strip().strip("\"'")
+            self._rows = _pragma_table_info(table_name)
+            self._row_index = 0
+            self.rowcount = len(self._rows)
+            return self
+        if params is not None and not isinstance(params, Mapping):
+            sql, bound_params = _convert_qmark_sql(sql, list(params))
+        else:
+            bound_params = params
+        sql = _prepare_sql(sql)
+        returning_id = _needs_insert_returning_id(sql)
+        if returning_id:
+            sql = sql.rstrip().rstrip(";") + " RETURNING id"
+        try:
+            result = self.connection._connection.execute(text(sql), bound_params or {})
+        except SQLAlchemyIntegrityError as exc:
+            raise DatabaseIntegrityError(str(exc.orig)) from exc
+        self._rows = []
+        self._row_index = 0
+        if result.returns_rows:
+            fetched = result.fetchall()
+            self._rows = [DbRow(row._mapping) for row in fetched]
+            if returning_id and self._rows:
+                self.lastrowid = int(self._rows[0]["id"])
+        elif result.lastrowid is not None:
+            self.lastrowid = int(result.lastrowid)
+        self.rowcount = result.rowcount
+        return self
+
+    def executemany(self, sql: str, seq_of_params: Sequence[Sequence[Any] | Mapping[str, Any]]) -> DbCursor:
+        for params in seq_of_params:
+            self.execute(sql, params)
+        return self
+
+    def fetchone(self) -> DbRow | None:
+        if self._row_index >= len(self._rows):
+            return None
+        row = self._rows[self._row_index]
+        self._row_index += 1
+        return row
+
+    def fetchall(self) -> list[DbRow]:
+        rows = self._rows[self._row_index :]
+        self._row_index = len(self._rows)
+        return rows
+
+    def column_exists(self, table_name: str, column_name: str) -> bool:
+        return column_name in {row["name"] for row in _pragma_table_info(table_name)}
+
+
+class DbConnection:
+    def __init__(self, connection: Connection):
+        self._connection = connection
+        self._transaction = connection.begin()
+        self._closed = False
+
+    def cursor(self) -> DbCursor:
+        return DbCursor(self)
+
+    def execute(self, sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None) -> DbCursor:
+        return self.cursor().execute(sql, params)
+
+    def commit(self) -> None:
+        if self._closed:
+            return
+        self._transaction.commit()
+        self._transaction = self._connection.begin()
+
+    def rollback(self) -> None:
+        if self._closed:
+            return
+        self._transaction.rollback()
+        self._transaction = self._connection.begin()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        if self._transaction.is_active:
+            self._transaction.rollback()
+        self._connection.close()
+        self._closed = True
+
+    def __enter__(self) -> DbConnection:
+        return self
+
+    def __exit__(self, exc_type: object, _exc: object, _tb: object) -> None:
+        if exc_type:
+            self.rollback()
+        else:
+            self.commit()
+        self.close()
+
+
 def utc_now() -> str:
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
 
-def get_conn() -> sqlite3.Connection:
+def get_conn() -> DbConnection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    timeout = float(os.getenv("SQLITE_TIMEOUT_SECONDS", "30"))
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=timeout)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA busy_timeout = 30000")
-    return conn
+    if is_sqlite():
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return DbConnection(get_engine().connect())
+
+
+connect = get_conn
+
+
+@contextmanager
+def transaction() -> Iterator[DbConnection]:
+    conn = get_conn()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def execute(sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None) -> DbCursor:
+    conn = get_conn()
+    try:
+        cur = conn.execute(sql, params)
+        conn.commit()
+        return cur
+    finally:
+        conn.close()
+
+
+def fetch_one(sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None) -> DbRow | None:
+    conn = get_conn()
+    try:
+        return conn.execute(sql, params).fetchone()
+    finally:
+        conn.close()
+
+
+def fetch_all(sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None) -> list[DbRow]:
+    conn = get_conn()
+    try:
+        return conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
 
 
 def init_db() -> None:
@@ -248,12 +677,10 @@ def init_db() -> None:
     conn.close()
 
 
-def ensure_column(cursor: sqlite3.Cursor, table_name: str, column_name: str, column_definition: str) -> None:
+def ensure_column(cursor: DbCursor, table_name: str, column_name: str, column_definition: str) -> None:
     if table_name not in SQL_IDENTIFIER_ALLOWLIST:
         raise ValueError(f"Unsupported table for schema update: {table_name}")
-    cursor.execute(f"PRAGMA table_info({table_name})")
-    existing_columns = {row[1] for row in cursor.fetchall()}
-    if column_name not in existing_columns:
+    if not cursor.column_exists(table_name, column_name):
         cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
 
 
@@ -351,7 +778,7 @@ def delete_clips_for_job(job_id: int) -> None:
     conn.close()
 
 
-def get_job_by_id(job_id: int) -> Optional[sqlite3.Row]:
+def get_job_by_id(job_id: int) -> Optional[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
@@ -360,7 +787,7 @@ def get_job_by_id(job_id: int) -> Optional[sqlite3.Row]:
     return row
 
 
-def get_all_jobs() -> List[sqlite3.Row]:
+def get_all_jobs() -> List[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM jobs ORDER BY id DESC")
@@ -369,7 +796,7 @@ def get_all_jobs() -> List[sqlite3.Row]:
     return rows
 
 
-def get_clip_rows_by_job_id(job_id: int) -> List[sqlite3.Row]:
+def get_clip_rows_by_job_id(job_id: int) -> List[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM clips WHERE job_id = ? ORDER BY clip_index ASC", (job_id,))
@@ -411,7 +838,7 @@ def update_clip_by_job_and_index(job_id: int, clip_index: int, fields: Dict[str,
     conn.close()
 
 
-def sum_clip_metrics(job_id: int) -> sqlite3.Row:
+def sum_clip_metrics(job_id: int) -> DbRow:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -429,7 +856,7 @@ def sum_clip_metrics(job_id: int) -> sqlite3.Row:
     return row
 
 
-def get_storyboard_frames(job_id: int) -> List[sqlite3.Row]:
+def get_storyboard_frames(job_id: int) -> List[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM storyboard_frames WHERE job_id = ? ORDER BY clip_index ASC", (job_id,))
@@ -438,7 +865,7 @@ def get_storyboard_frames(job_id: int) -> List[sqlite3.Row]:
     return rows
 
 
-def get_storyboard_frame(frame_id: int) -> Optional[sqlite3.Row]:
+def get_storyboard_frame(frame_id: int) -> Optional[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM storyboard_frames WHERE id = ?", (frame_id,))
@@ -565,7 +992,7 @@ def create_frame_image_version(payload: Dict[str, Any]) -> int:
     return int(version_id)
 
 
-def list_frame_image_versions(frame_id: int) -> List[sqlite3.Row]:
+def list_frame_image_versions(frame_id: int) -> List[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -577,7 +1004,7 @@ def list_frame_image_versions(frame_id: int) -> List[sqlite3.Row]:
     return rows
 
 
-def get_current_frame_image_version(frame_id: int) -> Optional[sqlite3.Row]:
+def get_current_frame_image_version(frame_id: int) -> Optional[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -589,7 +1016,7 @@ def get_current_frame_image_version(frame_id: int) -> Optional[sqlite3.Row]:
     return row
 
 
-def get_frame_image_version(version_id: int) -> Optional[sqlite3.Row]:
+def get_frame_image_version(version_id: int) -> Optional[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM frame_image_versions WHERE id = ?", (version_id,))
@@ -676,7 +1103,7 @@ def create_usage_event(payload: Dict[str, Any]) -> int:
     return int(event_id)
 
 
-def list_usage_events(job_id: int) -> List[sqlite3.Row]:
+def list_usage_events(job_id: int) -> List[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM usage_events WHERE job_id = ? ORDER BY id DESC", (job_id,))
@@ -726,7 +1153,7 @@ def create_template(payload: Dict[str, Any]) -> int:
     return int(template_id)
 
 
-def list_templates() -> List[sqlite3.Row]:
+def list_templates() -> List[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM templates ORDER BY updated_at DESC")
@@ -735,7 +1162,7 @@ def list_templates() -> List[sqlite3.Row]:
     return rows
 
 
-def get_template(template_id: int) -> Optional[sqlite3.Row]:
+def get_template(template_id: int) -> Optional[DbRow]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM templates WHERE id = ?", (template_id,))

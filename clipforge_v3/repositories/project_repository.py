@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from typing import Any
 
-from db import get_conn, utc_now
+from db import DatabaseIntegrityError, get_conn, utc_now
 
 from clipforge_v3.migrations import ensure_v3_schema
 
@@ -249,7 +248,7 @@ def create_usage_event(payload: dict[str, Any]) -> int:
         )
         event_id = int(cur.lastrowid)
         conn.commit()
-    except sqlite3.IntegrityError:
+    except DatabaseIntegrityError:
         if not event_key:
             conn.close()
             raise

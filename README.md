@@ -20,7 +20,8 @@ Environment variables:
 - `YOUTUBE_TOKEN_PATH`: default `/secrets/youtube_token.json`
 - `YOUTUBE_ACCOUNTS_DIR`: default `./secrets/youtube_accounts`
 - `DATA_DIR`: default `./data`
-- `DB_URL`: optional SQLite URL, for example `sqlite:///./data/clipforge.db`
+- `DATABASE_URL`: optional database URL; defaults to local SQLite and supports `postgresql+psycopg://...` for PostgreSQL
+- `DB_URL`: backward-compatible SQLite-only URL, for example `sqlite:///./data/clipforge.db`
 - `OUTPUTS_DIR`: default `./outputs`
 - `UPLOADS_DIR`: default `./uploads`
 - `PRICE_PER_MILLION_TOKENS_CNY`: default `46`
@@ -194,6 +195,7 @@ Current V3 development status: `docs/clipforge-v3/CURRENT_STATUS.md`
 Real Provider readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
 Object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
 Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
+PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
 
 - `docs/clipforge-v3/README.md`
 - `docs/clipforge-v3/user-guide-zh.md`

@@ -12,7 +12,7 @@ Resolved in state-machine hardening commit:
 2. Provider success persistence is replay-safe. A generation submission can own only one Take through `v3_takes.generation_submission_id`, and video generation cost can be written only once through `v3_usage_events.event_key`.
 3. New real-provider submissions run `_ensure_budget()` before `reserve_generation_submission()`, and old `reserved` rows without `budget_approved_at` cannot be submitted automatically.
 
-Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. Real R2 public/private smoke validation has passed without Ark generation. A later Cloud Run database audit found that `/data/clipforge.db` is currently on a GCSFuse mount with SQLite WAL/SHM out-of-order write errors, so the next platform task is moving online state to Cloud SQL PostgreSQL before allowing production writes.
+Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. Real R2 public/private smoke validation has passed without Ark generation. A later Cloud Run database audit found that `/data/clipforge.db` is currently on a GCSFuse mount with SQLite WAL/SHM out-of-order write errors. A `DATABASE_URL` SQLite/PostgreSQL backend foundation now exists, but Cloud Run has not been switched to PostgreSQL and production data has not been migrated.
 
 ## 2. Current Repository Baseline
 
@@ -498,7 +498,7 @@ Remaining high-risk gaps:
 
 ## 15. Recommended Development Order
 
-1. Implement Cloud SQL PostgreSQL backend support through a `DATABASE_URL` abstraction while keeping SQLite for local development and tests
+1. Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal
 2. Apply temporary Cloud Run safeguards if any online writes must happen before the migration
 3. Add UI integration for private R2 generated-video playback/download
 4. Add long-running worker soak testing with R2 enabled
@@ -509,14 +509,14 @@ Remaining high-risk gaps:
 
 ## 16. Single Next Recommended Task
 
-**Implement a database backend migration plan for Cloud SQL PostgreSQL, starting with a `DATABASE_URL` abstraction while keeping SQLite for local development and tests.**
+**Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal.**
 
 Scope of that task:
 
-- add a database backend abstraction in `db.py`
-- keep current SQLite behavior for local tests
-- add PostgreSQL connection support for Cloud Run
-- port migrations/repository SQL away from SQLite-only assumptions
-- prepare a safe export/import and rollback plan for the current SQLite data
+- provision an isolated PostgreSQL test database
+- run schema initialization through `DATABASE_URL`
+- rehearse import from a copied SQLite database
+- validate Legacy and V3 row counts and representative records
+- keep production Cloud Run on its current database until rehearsal passes
 
 That is the highest-leverage next step because R2 has passed smoke validation, but the current Cloud Run SQLite-on-GCSFuse topology is not safe for production writes or paid-provider state.

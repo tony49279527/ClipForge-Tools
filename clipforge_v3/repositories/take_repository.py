@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 from typing import Any
-import sqlite3
 
-from db import get_conn, utc_now
+from db import DatabaseIntegrityError, get_conn, utc_now
 
 from clipforge_v3.migrations import ensure_v3_schema
 
@@ -136,7 +135,7 @@ def get_or_create_take_for_submission(payload: dict[str, Any]) -> tuple[dict[str
         return dict(existing), False
     try:
         take_id = create_take(payload)
-    except sqlite3.IntegrityError:
+    except DatabaseIntegrityError:
         existing = get_take_by_generation_submission_id(int(submission_id))
         if existing:
             return dict(existing), False
@@ -199,7 +198,7 @@ def reserve_generation_submission(payload: dict[str, Any]) -> tuple[dict[str, An
         )
         conn.commit()
         created = True
-    except sqlite3.IntegrityError:
+    except DatabaseIntegrityError:
         conn.rollback()
         created = False
     cur.execute("SELECT * FROM v3_generation_submissions WHERE idempotency_key = ?", (payload["idempotency_key"],))

@@ -31,6 +31,8 @@
 - Cloud Run now has `CLIPFORGE_V3_ENABLED=true`; `/v3` and `/v3/ready` returned HTTP 200 after deployment.
 - Cloud Run database persistence is not production-safe: `/data/clipforge.db` is on a GCSFuse mount, SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors, and the service currently allows concurrency `80` with max scale `20`.
 - Offline integrity check of a copied `clipforge.db` returned `ok`, but that only proves the copied main database file was readable at audit time; it does not make GCSFuse-backed SQLite safe for writes.
+- `DATABASE_URL`-driven SQLite/PostgreSQL backend selection is now implemented in code using SQLAlchemy Core and `psycopg`, while local development and automated tests continue to default to SQLite.
+- Production Cloud Run has not been switched to PostgreSQL, Cloud SQL has not been created, and production SQLite data has not been migrated.
 
 ## Verified Commands
 
@@ -52,6 +54,7 @@ Current recorded results:
 - Legacy routes: `3 passed`
 - Real R2 smoke script: `scripts/v3/test_real_r2_storage.py`
 - Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
+- PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
 
 ## Safe Payload Inspection
 
@@ -71,8 +74,9 @@ This inspector:
 1. Review the readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
 2. Review the object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
 3. Review the Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
-4. Implement the Cloud SQL PostgreSQL migration plan before enabling real production writes.
-5. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or explicit temporary safeguards are applied.
+4. Review the PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
+5. Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal before enabling real production writes.
+6. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or explicit temporary safeguards are applied.
 
 ## Real Paid Test Protection
 
@@ -96,7 +100,8 @@ Automatic repeated tests are forbidden.
 ## Not Complete
 
 - Private R2 video playback/download UI integration
-- Cloud SQL/PostgreSQL database backend for Cloud Run writes
+- Cloud SQL PostgreSQL test instance and migration rehearsal
+- Production Cloud Run switch to PostgreSQL
 - Batch real-product validation
 - Long-running Worker tests
 - External user authentication

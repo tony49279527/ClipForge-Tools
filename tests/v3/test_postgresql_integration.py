@@ -34,27 +34,28 @@ def pg_modules(monkeypatch, tmp_path):
     monkeypatch.setenv("CLIPFORGE_V3_ENABLED", "true")
     _clear_modules()
     db = importlib.import_module("db")
-    with db.get_engine().begin() as conn:
-        conn.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
-        conn.exec_driver_sql("CREATE SCHEMA public")
-    db.reset_engine_for_tests()
-    db = importlib.reload(db)
-    db.init_db()
-    migrations = importlib.import_module("clipforge_v3.migrations")
-    migrations.ensure_v3_schema()
-    migrations.ensure_v3_schema()
-    modules = {
-        "db": db,
-        "migrations": migrations,
-        "project_repo": importlib.import_module("clipforge_v3.repositories.project_repository"),
-        "asset_repo": importlib.import_module("clipforge_v3.repositories.asset_repository"),
-        "shot_repo": importlib.import_module("clipforge_v3.repositories.shot_repository"),
-        "take_repo": importlib.import_module("clipforge_v3.repositories.take_repository"),
-    }
+    modules = None
     try:
+        with db.get_engine().begin() as conn:
+            conn.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
+            conn.exec_driver_sql("CREATE SCHEMA public")
+        db.reset_engine_for_tests()
+        db = importlib.reload(db)
+        db.init_db()
+        migrations = importlib.import_module("clipforge_v3.migrations")
+        migrations.ensure_v3_schema()
+        migrations.ensure_v3_schema()
+        modules = {
+            "db": db,
+            "migrations": migrations,
+            "project_repo": importlib.import_module("clipforge_v3.repositories.project_repository"),
+            "asset_repo": importlib.import_module("clipforge_v3.repositories.asset_repository"),
+            "shot_repo": importlib.import_module("clipforge_v3.repositories.shot_repository"),
+            "take_repo": importlib.import_module("clipforge_v3.repositories.take_repository"),
+        }
         yield modules
     finally:
-        modules["db"].get_engine().dispose()
+        (modules["db"] if modules else db).get_engine().dispose()
 
 
 def _project_payload() -> dict[str, Any]:

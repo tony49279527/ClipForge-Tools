@@ -382,8 +382,10 @@ class DbCursor:
             self._rows = [DbRow(row._mapping) for row in fetched]
             if returning_id and self._rows:
                 self.lastrowid = int(self._rows[0]["id"])
-        elif result.lastrowid is not None:
-            self.lastrowid = int(result.lastrowid)
+        elif is_sqlite():
+            lastrowid = getattr(result, "lastrowid", None)
+            if lastrowid is not None:
+                self.lastrowid = int(lastrowid)
         self.rowcount = result.rowcount
         return self
 

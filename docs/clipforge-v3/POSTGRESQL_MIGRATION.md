@@ -68,6 +68,8 @@ The database adapter compiles critical SQLite DDL patterns for PostgreSQL:
 
 The migration path is repeatable for SQLite and has a real PostgreSQL integration test hook through `POSTGRES_TEST_DATABASE_URL`. That integration test is skipped unless an explicit disposable PostgreSQL test database is provided.
 
+GitHub Actions now includes `.github/workflows/postgresql-integration.yml`, which runs PostgreSQL 16 as a service container and executes the PostgreSQL integration and migration rehearsal tests without Cloud SQL or production credentials.
+
 ## 7. SQL Incompatibilities Resolved
 
 Resolved in the backend foundation:
@@ -88,6 +90,19 @@ Still to reduce in later passes:
 
 Legacy and V3 code now route through `db.get_conn()` and the shared adapter for normal app paths. V3 repositories that depend on uniqueness protection use `DatabaseIntegrityError` instead of directly catching `sqlite3.IntegrityError`.
 
+The following higher-risk V3 paths now use named-parameter helpers instead of relying only on SQLite-style `?` conversion:
+
+- project create/read/update
+- product truth create
+- asset create/read/update
+- shot create/read/update
+- prompt version create
+- generation submission reservation/read/update/claim
+- Take create/read/update/get-or-create
+- generation usage event idempotent create
+
+Remaining adapter-dependent paths include broad Legacy CRUD, some V3 list/report queries, review/final-assembly/retake helpers, continuity helpers, and migration DDL compilation.
+
 This is a foundation, not a finished production migration. The code can select PostgreSQL and create schema from an empty database path, but production data has not been exported, transformed, imported, or cut over.
 
 ## 9. Test Strategy
@@ -104,6 +119,8 @@ Optional disposable PostgreSQL integration:
 ```bash
 export POSTGRES_TEST_DATABASE_URL=postgresql+psycopg://...
 python -m pytest -q tests/v3/test_database_backend.py
+python -m pytest -q tests/v3/test_postgresql_integration.py
+python -m pytest -q tests/v3/test_database_migration_tools.py
 ```
 
 Do not point `POSTGRES_TEST_DATABASE_URL` at production Cloud SQL or any database containing real ClipForge data.
@@ -121,6 +138,15 @@ Do not point `POSTGRES_TEST_DATABASE_URL` at production Cloud SQL or any databas
 9. Run read-only smoke checks against the imported PostgreSQL database.
 10. Only then test controlled write paths on a staging/alpha service.
 
+Rehearsal tools:
+
+- `scripts/v3/compare_database_schema.py`
+- `scripts/v3/export_sqlite_for_postgres.py`
+- `scripts/v3/import_postgres_from_export.py`
+- `scripts/v3/validate_database_migration.py`
+
+The import tool is dry-run by default and requires explicit confirmation before writing. It refuses SQLite targets and refuses non-local PostgreSQL targets for this rehearsal phase.
+
 ## 11. Cloud SQL Connection Plan
 
 Use Secret Manager or Cloud Run secret environment variables for `DATABASE_URL`. Do not print or commit database credentials.
@@ -134,6 +160,15 @@ Recommended Cloud Run order:
 5. Import copied SQLite data into the test database.
 6. Validate application reads and safe writes.
 7. Plan production cutover only after staging validation.
+
+Planning helper:
+
+```bash
+bash scripts/v3/prepare_cloud_sql_postgres.sh --help
+bash scripts/v3/prepare_cloud_sql_postgres.sh --project YOUR_TEST_PROJECT --plan
+```
+
+Do not pass `--execute` until a human explicitly authorizes Cloud SQL creation.
 
 ## 12. Cutover Sequence
 

@@ -12,7 +12,7 @@ Resolved in state-machine hardening commit:
 2. Provider success persistence is replay-safe. A generation submission can own only one Take through `v3_takes.generation_submission_id`, and video generation cost can be written only once through `v3_usage_events.event_key`.
 3. New real-provider submissions run `_ensure_budget()` before `reserve_generation_submission()`, and old `reserved` rows without `budget_approved_at` cannot be submitted automatically.
 
-Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. Real R2 public/private smoke validation has passed without Ark generation. A later Cloud Run database audit found that `/data/clipforge.db` is currently on a GCSFuse mount with SQLite WAL/SHM out-of-order write errors. A `DATABASE_URL` SQLite/PostgreSQL backend foundation now exists, but Cloud Run has not been switched to PostgreSQL and production data has not been migrated.
+Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. Real R2 public/private smoke validation has passed without Ark generation. A later Cloud Run database audit found that `/data/clipforge.db` is currently on a GCSFuse mount with SQLite WAL/SHM out-of-order write errors. A `DATABASE_URL` SQLite/PostgreSQL backend foundation, PostgreSQL integration workflow, and migration rehearsal tools now exist, but Cloud Run has not been switched to PostgreSQL and production data has not been migrated.
 
 ## 2. Current Repository Baseline
 
@@ -495,6 +495,7 @@ Remaining high-risk gaps:
 3. Cloud Run currently stores SQLite at `/data/clipforge.db` on a GCSFuse mount. Logs show repeated `clipforge.db-shm` out-of-order write errors, while Cloud Run allows concurrency `80` and max scale `20`.
 4. R2 code is implemented and smoke-validated against Cloudflare R2 public/private buckets.
 5. Private R2 generated-video playback is not yet wired into the UI.
+6. PostgreSQL support is not yet deployed to Cloud Run and production data has not been migrated.
 
 ## 15. Recommended Development Order
 

@@ -21,6 +21,7 @@ Environment variables:
 - `YOUTUBE_ACCOUNTS_DIR`: default `./secrets/youtube_accounts`
 - `DATA_DIR`: default `./data`
 - `DATABASE_URL`: optional database URL; defaults to local SQLite and supports `postgresql+psycopg://...` for PostgreSQL
+- `POSTGRES_TEST_DATABASE_URL`: optional disposable PostgreSQL URL for integration and migration rehearsal tests; never point this at production
 - `DB_URL`: backward-compatible SQLite-only URL, for example `sqlite:///./data/clipforge.db`
 - `OUTPUTS_DIR`: default `./outputs`
 - `UPLOADS_DIR`: default `./uploads`
@@ -196,6 +197,7 @@ Real Provider readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.
 Object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
 Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
 PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
+Temporary database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
 
 - `docs/clipforge-v3/README.md`
 - `docs/clipforge-v3/user-guide-zh.md`

@@ -21,7 +21,7 @@ At audit time, the application used `db.py` as the shared SQLite access layer fo
 - `db.py::get_conn()` sets `PRAGMA journal_mode = WAL` on every connection
 - `db.py::get_conn()` sets `PRAGMA busy_timeout = 30000`
 
-Follow-up code now adds `DATABASE_URL`-driven SQLite/PostgreSQL backend selection through SQLAlchemy Core while preserving local SQLite defaults. This does not change the audited production topology until Cloud Run is explicitly configured with a PostgreSQL `DATABASE_URL` and production data is migrated.
+Follow-up code now adds `DATABASE_URL`-driven SQLite/PostgreSQL backend selection through SQLAlchemy Core while preserving local SQLite defaults. A PostgreSQL integration workflow and migration rehearsal tools now exist. This does not change the audited production topology until Cloud Run is explicitly configured with a PostgreSQL `DATABASE_URL` and production data is migrated.
 
 Cloud Run currently sets:
 
@@ -314,7 +314,7 @@ The migration should avoid a broad rewrite of business logic, but it needs a rea
 1. Freeze Cloud Run production writes or set max instances/concurrency to 1 as a temporary guard.
 2. Back up `gs://clipforge-tools-data/clipforge.db`.
 3. Use the implemented `DATABASE_URL` abstraction in `db.py` for a disposable PostgreSQL test database.
-4. Run schema creation and migration repeatability checks against PostgreSQL.
+4. Run schema creation, migration repeatability, repository idempotency, export/import, and validation checks against PostgreSQL.
 5. Create Cloud SQL PostgreSQL instance and database.
 6. Export current SQLite data and import into PostgreSQL with validation.
 7. Deploy Cloud Run with `DATABASE_URL` pointing to Cloud SQL and without SQLite-on-GCSFuse as the active DB.
@@ -347,3 +347,5 @@ Rollback options:
 **Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal using copied non-mutating data.**
 
 Do not run Ark, Seedance, paid generation, or production write tests until the database persistence risk is addressed or temporary safeguards are explicitly applied.
+
+Temporary safeguard runbook: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`.

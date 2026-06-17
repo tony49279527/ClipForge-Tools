@@ -32,6 +32,9 @@
 - Cloud Run database persistence is not production-safe: `/data/clipforge.db` is on a GCSFuse mount, SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors, and the service currently allows concurrency `80` with max scale `20`.
 - Offline integrity check of a copied `clipforge.db` returned `ok`, but that only proves the copied main database file was readable at audit time; it does not make GCSFuse-backed SQLite safe for writes.
 - `DATABASE_URL`-driven SQLite/PostgreSQL backend selection is now implemented in code using SQLAlchemy Core and `psycopg`, while local development and automated tests continue to default to SQLite.
+- Key V3 repository paths for projects, assets, shots, prompt versions, generation submissions, Takes, and generation usage events now use named-parameter database helpers instead of relying only on SQLite-style `?` conversion.
+- GitHub Actions PostgreSQL integration workflow is configured with a PostgreSQL 16 service container. Local runs skip PostgreSQL integration unless `POSTGRES_TEST_DATABASE_URL` is set.
+- SQLite export, PostgreSQL import, schema compare, and migration validation rehearsal tools exist under `scripts/v3/`.
 - Production Cloud Run has not been switched to PostgreSQL, Cloud SQL has not been created, and production SQLite data has not been migrated.
 
 ## Verified Commands
@@ -55,6 +58,7 @@ Current recorded results:
 - Real R2 smoke script: `scripts/v3/test_real_r2_storage.py`
 - Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
 - PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
+- Temporary Cloud Run database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
 
 ## Safe Payload Inspection
 
@@ -75,8 +79,9 @@ This inspector:
 2. Review the object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
 3. Review the Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
 4. Review the PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
-5. Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal before enabling real production writes.
-6. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or explicit temporary safeguards are applied.
+5. Review temporary database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
+6. Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal before enabling real production writes.
+7. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or explicit temporary safeguards are applied.
 
 ## Real Paid Test Protection
 

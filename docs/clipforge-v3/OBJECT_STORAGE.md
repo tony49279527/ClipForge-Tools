@@ -190,11 +190,11 @@ export R2_PRIVATE_BUCKET_NAME=clipforge-private-videos
 export R2_PUBLIC_BASE_URL=https://...
 ```
 
-`R2_BUCKET_NAME` is retained only for old single-bucket compatibility. Cloud Run should use the dual-bucket variables above. V3 is not yet enabled online in the current Cloud Run service, and no real R2 upload/read/delete validation has been executed. Do not paste secrets into chat, docs, logs, or Git. Use environment-specific secret storage.
+`R2_BUCKET_NAME` is retained only for old single-bucket compatibility. Cloud Run should use the dual-bucket variables above. V3 is enabled online only after the R2 smoke check passes. Do not paste secrets into chat, docs, logs, or Git. Use environment-specific secret storage.
 
 ## 12. Not Complete
 
-- No real R2 upload/read/delete validation has been executed in this branch.
+- Real R2 smoke validation has passed for public upload/read/delete and private upload/presigned-read/delete using `scripts/v3/test_real_r2_storage.py`.
 - UI playback for private R2 videos still needs a signed-download endpoint or equivalent page integration.
 - Lifecycle policies, retention, and bucket cleanup are not yet automated.
 - Multi-user authorization for private video access is not implemented.

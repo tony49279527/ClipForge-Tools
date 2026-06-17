@@ -12,7 +12,7 @@ Resolved in state-machine hardening commit:
 2. Provider success persistence is replay-safe. A generation submission can own only one Take through `v3_takes.generation_submission_id`, and video generation cost can be written only once through `v3_usage_events.event_key`.
 3. New real-provider submissions run `_ensure_budget()` before `reserve_generation_submission()`, and old `reserved` rows without `budget_approved_at` cannot be submitted automatically.
 
-Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. The next task should be a controlled real R2 validation against a dedicated test bucket; it must not be combined with any Ark generation.
+Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. Real R2 public/private smoke validation has passed without Ark generation; the next storage task is private generated-video playback/download UI integration.
 
 ## 2. Current Repository Baseline
 
@@ -369,7 +369,7 @@ Current state:
 
 Remaining production blockers after object storage code integration:
 
-- No real R2 upload/read/delete validation has been executed.
+- Real R2 smoke validation has passed for public upload/read/delete and private upload/presigned-read/delete using dedicated smoke-test objects.
 - UI playback for private R2 videos still needs a signed-download endpoint or equivalent integration.
 - Bucket lifecycle, retention, and cleanup policy are not automated.
 - External authorization for private generated-video access is not implemented.
@@ -418,7 +418,7 @@ Remaining high-priority missing tests:
 1. Successful local file serving through `/v3/storage/local/...` still needs a positive-path route test; `LocalStorage.base_dir` now exists.
 2. Provider reconciliation command for `unknown_submission_state` is not implemented or tested.
 3. Real provider download recovery has one successful live example, but URL lifetime behavior still needs longer-window evidence.
-4. Object storage is covered by mock tests, but real R2 behavior is not yet validated.
+4. Object storage is covered by mock tests, and real R2 smoke behavior has been validated for upload/read/presigned-read/delete. Private-video UI playback integration remains open.
 5. Long-running worker soak behavior is not covered.
 
 Medium-priority missing tests:
@@ -492,13 +492,13 @@ Remaining high-risk gaps:
 
 1. No operator reconciliation workflow exists yet for `unknown_submission_state`.
 2. Only one real Ark task has been validated; broader product and provider-state coverage is still missing.
-3. R2 code is implemented but not validated against a real Cloudflare test bucket.
+3. R2 code is implemented and smoke-validated against Cloudflare R2 public/private buckets.
 4. Private R2 generated-video playback is not yet wired into the UI.
 
 ## 15. Recommended Development Order
 
-1. Validate R2 upload, read, presigned download, and delete against a dedicated test bucket
-2. Add UI integration for private R2 generated-video playback/download
+1. Add UI integration for private R2 generated-video playback/download
+2. Add long-running worker soak testing with R2 enabled
 3. Implement operator reconciliation for `unknown_submission_state`
 4. Perform long-running worker soak tests
 5. Expand real-product validation batch coverage
@@ -507,7 +507,7 @@ Remaining high-risk gaps:
 
 ## 16. Single Next Recommended Task
 
-**Use a dedicated test bucket to validate real R2 upload, read, signed download, and delete.**
+**Add UI integration for private R2 generated-video playback/download.**
 
 Scope of that task:
 
@@ -517,4 +517,4 @@ Scope of that task:
 - validate delete/cleanup on the dedicated test bucket
 - verify no Ark/Seedance submit path is invoked
 
-That is the highest-leverage next step because storage code is now covered by mocks, while production confidence depends on real R2 endpoint behavior, bucket policy, public URL configuration, and signed URL playback semantics.
+That is the highest-leverage next step because real R2 endpoint behavior, bucket policy, public URL configuration, and signed URL semantics have passed smoke validation, while generated-video playback still lacks a user-facing signed-download path.

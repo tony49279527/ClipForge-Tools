@@ -26,7 +26,9 @@
 - R2 dual-bucket mode is supported: product reference images use `R2_PUBLIC_BUCKET_NAME`, generated videos use `R2_PRIVATE_BUCKET_NAME`, and old `R2_BUCKET_NAME` single-bucket mode remains supported for compatibility.
 - Product image uploads can store `storage_backend`, `object_key`, `content_type`, `size_bytes`, and a stable HTTPS `access_url`.
 - Generated provider videos can be uploaded to private R2 storage after download; Take rows can store `storage_backend`, `object_key`, `content_type`, and `size_bytes` without persisting presigned URLs.
-- R2 tests use mocked S3/R2 clients only. No real R2 validation has been executed.
+- R2 tests use mocked S3/R2 clients in CI/local regression.
+- A real R2 smoke validation has been executed with dedicated smoke-test objects: public upload/read/delete passed, private upload/presigned-read/delete passed, and test objects were cleaned up.
+- Cloud Run now has `CLIPFORGE_V3_ENABLED=true`; `/v3` and `/v3/ready` returned HTTP 200 after deployment.
 
 ## Verified Commands
 
@@ -46,6 +48,7 @@ Current recorded results:
 - Object storage tests after dual-bucket R2 support: `17 passed`
 - Object storage targeted selector after dual-bucket R2 support: `38 passed, 80 deselected`
 - Legacy routes: `3 passed`
+- Real R2 smoke script: `scripts/v3/test_real_r2_storage.py`
 
 ## Safe Payload Inspection
 
@@ -64,9 +67,9 @@ This inspector:
 
 1. Review the readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
 2. Review the object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
-3. Use dedicated public/private test Buckets for one real R2 upload, read, presigned download, and delete validation after explicit authorization.
+3. Add signed playback/download UI integration for private R2 videos.
 4. Add long-running worker soak tests.
-5. Do not deploy production before object storage is complete.
+5. Do not run paid generation from the deployed V3 UI until a separate no-regression production-readiness pass is complete.
 
 ## Real Paid Test Protection
 
@@ -89,7 +92,6 @@ Automatic repeated tests are forbidden.
 
 ## Not Complete
 
-- Real R2 upload/read/delete validation
 - Private R2 video playback/download UI integration
 - Batch real-product validation
 - Long-running Worker tests

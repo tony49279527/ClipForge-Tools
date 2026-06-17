@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 
 
 CORE_TABLE_ORDER = [
@@ -98,7 +99,7 @@ def postgres_engine(url: str) -> Engine:
     host = parsed.hostname or ""
     if host not in {"127.0.0.1", "localhost", "postgres"}:
         raise ValueError("Refusing non-local PostgreSQL target in migration rehearsal tool")
-    return create_engine(url, pool_pre_ping=True, future=True)
+    return create_engine(url, pool_pre_ping=True, poolclass=NullPool, future=True)
 
 
 def sqlite_tables(conn: sqlite3.Connection) -> list[str]:

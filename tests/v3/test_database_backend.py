@@ -31,6 +31,60 @@ def test_default_database_url_uses_local_sqlite(monkeypatch, tmp_path):
     assert row["count"] == 0
 
 
+def test_legacy_jobs_schema_includes_production_history_columns(monkeypatch, tmp_path):
+    db = _reload_db(monkeypatch, tmp_path)
+    db.init_db()
+
+    columns = {row["name"] for row in db.fetch_all("PRAGMA table_info(jobs)")}
+
+    assert {
+        "prompt_reviewed",
+        "video_reviewed",
+        "publish_confirmed",
+        "source",
+        "creative_prompt",
+    }.issubset(columns)
+
+
+def test_create_job_persists_production_history_columns(monkeypatch, tmp_path):
+    db = _reload_db(monkeypatch, tmp_path)
+    db.init_db()
+
+    job_id = db.create_job(
+        {
+            "project_name": "history columns",
+            "product_name": "wheel",
+            "product_brief": "brief",
+            "video_mode": "shorts",
+            "ratio": "9:16",
+            "clip_duration": 5,
+            "clip_count": 1,
+            "resolution": "720p",
+            "youtube_title": "title",
+            "privacy": "private",
+            "prompt_reviewed": 1,
+            "video_reviewed": 1,
+            "publish_confirmed": 1,
+            "source": "api",
+            "creative_prompt": "historic prompt",
+        }
+    )
+
+    row = db.fetch_one(
+        """
+        SELECT prompt_reviewed, video_reviewed, publish_confirmed, source, creative_prompt
+        FROM jobs
+        WHERE id = ?
+        """,
+        (job_id,),
+    )
+    assert row["prompt_reviewed"] == 1
+    assert row["video_reviewed"] == 1
+    assert row["publish_confirmed"] == 1
+    assert row["source"] == "api"
+    assert row["creative_prompt"] == "historic prompt"
+
+
 def test_legacy_sqlite_db_url_remains_supported(monkeypatch, tmp_path):
     db_path = tmp_path / "legacy" / "clipforge.db"
     db = _reload_db(monkeypatch, tmp_path)

@@ -623,6 +623,11 @@ def init_db() -> None:
             publish_total_tokens INTEGER DEFAULT 0,
             publish_estimated_cost_cny REAL DEFAULT 0,
             total_estimated_cost_cny REAL DEFAULT 0,
+            prompt_reviewed INTEGER DEFAULT 0,
+            video_reviewed INTEGER DEFAULT 0,
+            publish_confirmed INTEGER DEFAULT 0,
+            source TEXT DEFAULT 'web',
+            creative_prompt TEXT,
             error_message TEXT,
             uploaded_images_note TEXT,
             created_at TEXT NOT NULL,
@@ -651,6 +656,11 @@ def init_db() -> None:
     ensure_column(cur, "jobs", "publish_total_tokens", "INTEGER DEFAULT 0")
     ensure_column(cur, "jobs", "publish_estimated_cost_cny", "REAL DEFAULT 0")
     ensure_column(cur, "jobs", "total_estimated_cost_cny", "REAL DEFAULT 0")
+    ensure_column(cur, "jobs", "prompt_reviewed", "INTEGER DEFAULT 0")
+    ensure_column(cur, "jobs", "video_reviewed", "INTEGER DEFAULT 0")
+    ensure_column(cur, "jobs", "publish_confirmed", "INTEGER DEFAULT 0")
+    ensure_column(cur, "jobs", "source", "TEXT DEFAULT 'web'")
+    ensure_column(cur, "jobs", "creative_prompt", "TEXT")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS clips (
@@ -798,9 +808,10 @@ def create_job(payload: Dict[str, Any]) -> int:
             idea_title, simple_idea, target_audience, language, style_preference,
             prompt_total_tokens, prompt_estimated_cost_cny, image_total_tokens,
             image_estimated_cost_cny, video_total_tokens, video_estimated_cost_cny,
-            publish_total_tokens, publish_estimated_cost_cny, total_estimated_cost_cny, error_message,
-            uploaded_images_note, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            publish_total_tokens, publish_estimated_cost_cny, total_estimated_cost_cny,
+            prompt_reviewed, video_reviewed, publish_confirmed, source, creative_prompt,
+            error_message, uploaded_images_note, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload["project_name"],
@@ -841,6 +852,11 @@ def create_job(payload: Dict[str, Any]) -> int:
             payload.get("publish_total_tokens", 0),
             payload.get("publish_estimated_cost_cny", 0),
             payload.get("total_estimated_cost_cny", 0),
+            payload.get("prompt_reviewed", 0),
+            payload.get("video_reviewed", 0),
+            payload.get("publish_confirmed", 0),
+            payload.get("source", "web"),
+            payload.get("creative_prompt"),
             payload.get("error_message"),
             payload.get("uploaded_images_note", ""),
             now,

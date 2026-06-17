@@ -159,6 +159,35 @@ def test_preflight_all_pass_and_output_does_not_include_password(capsys):
     assert "do-not-print" not in capsys.readouterr().out
 
 
+def test_preflight_validates_snapshot_manifest_contents(tmp_path):
+    preflight = _import_script("preflight_production_postgres_cutover")
+    missing = tmp_path / "missing.json"
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text(
+        json.dumps(
+            {
+                "snapshot": {"integrity_check": "failed", "sha256": "short", "size_bytes": 0},
+                "tables": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    valid = tmp_path / "valid.json"
+    valid.write_text(
+        json.dumps(
+            {
+                "snapshot": {"integrity_check": "ok", "sha256": "a" * 64, "size_bytes": 42},
+                "tables": {"jobs": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert preflight.validate_snapshot_manifest(missing) is False
+    assert preflight.validate_snapshot_manifest(invalid) is False
+    assert preflight.validate_snapshot_manifest(valid) is True
+
+
 def test_cutover_dry_run_plan_is_safe_and_forbids_partial_traffic():
     script = SCRIPTS_DIR / "cutover_sqlite_to_cloudsql.py"
     result = subprocess.run([sys.executable, str(script)], cwd=REPO_ROOT, text=True, capture_output=True, check=True)

@@ -76,6 +76,23 @@ def _run_json(args: list[str]) -> Any:
     return json.loads(subprocess.check_output(args, text=True) or "{}")
 
 
+def validate_snapshot_manifest(path: Path | None) -> bool:
+    if not path or not path.exists():
+        return False
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    snapshot = manifest.get("snapshot", {})
+    return (
+        snapshot.get("integrity_check") == "ok"
+        and isinstance(snapshot.get("sha256"), str)
+        and len(snapshot["sha256"]) == 64
+        and int(snapshot.get("size_bytes") or 0) > 0
+        and isinstance(manifest.get("tables"), dict)
+    )
+
+
 def collect_readonly_state(args: argparse.Namespace) -> dict[str, Any]:
     service = _run_json([
         "gcloud",
@@ -103,7 +120,7 @@ def collect_readonly_state(args: argparse.Namespace) -> dict[str, Any]:
         "production_database_url_present": any(item.get("name") == "DATABASE_URL" for item in env),
         "git_head_matches": True,
         "git_clean": subprocess.check_output(["git", "status", "--short"], text=True).strip() == "",
-        "snapshot_manifest_ok": args.snapshot_manifest and Path(args.snapshot_manifest).exists(),
+        "snapshot_manifest_ok": validate_snapshot_manifest(args.snapshot_manifest),
     }
 
 

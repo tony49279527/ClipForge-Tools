@@ -32,13 +32,8 @@ def sha256_file(path: Path) -> str:
 
 
 def _connect_readonly(path: Path) -> sqlite3.Connection:
-    try:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-        conn.execute("PRAGMA schema_version").fetchone()
-    except sqlite3.OperationalError:
-        if not path.exists():
-            raise
-        conn = sqlite3.connect(path)
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    conn.execute("PRAGMA schema_version").fetchone()
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -134,6 +129,7 @@ def create_snapshot(*, source: Path, output: Path, manifest_path: Path | None = 
             dest = sqlite3.connect(temp_path)
             try:
                 src.backup(dest)
+                dest.execute("PRAGMA journal_mode=DELETE").fetchone()
             finally:
                 dest.close()
         finally:

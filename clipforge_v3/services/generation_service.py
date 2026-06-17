@@ -346,7 +346,7 @@ def _store_provider_video_artifact(*, local_path: str, provider_video_url: str |
             "size_bytes": size_bytes,
         }
     object_key = take_video_object_key(project_id=project["id"], shot_id=shot["id"], submission_id=submission["id"])
-    stored = storage.save_file(project_id=project["id"], source_path=path, object_key=object_key, content_type="video/mp4")
+    stored = storage.save_file(project_id=project["id"], source_path=path, object_key=object_key, content_type="video/mp4", visibility="private")
     try:
         path.unlink(missing_ok=True)
     except Exception:

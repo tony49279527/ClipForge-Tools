@@ -36,9 +36,15 @@ class R2Config:
     endpoint_url: str
     access_key_id: str
     secret_access_key: str
-    bucket_name: str
+    public_bucket_name: str
+    private_bucket_name: str
     public_base_url: str
+    mode: str = "dual"
     region: str = "auto"
+
+    @property
+    def bucket_name(self) -> str:
+        return self.public_bucket_name
 
 
 class StorageAdapter(ABC):
@@ -49,7 +55,7 @@ class StorageAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def save_file(self, *, project_id: int, source_path: Path, object_key: str | None = None, content_type: str | None = None) -> StoredObject:
+    def save_file(self, *, project_id: int, source_path: Path, object_key: str | None = None, content_type: str | None = None, visibility: str = "public") -> StoredObject:
         raise NotImplementedError
 
     @abstractmethod
@@ -57,11 +63,11 @@ class StorageAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def exists(self, path_or_key: str, *, expected_size: int | None = None) -> bool:
+    def exists(self, path_or_key: str, *, expected_size: int | None = None, visibility: str = "public") -> bool:
         raise NotImplementedError
 
     @abstractmethod
-    def delete(self, path_or_key: str) -> None:
+    def delete(self, path_or_key: str, *, visibility: str = "public") -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -73,7 +79,7 @@ class StorageAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_download_url(self, object_key: str, *, expires_in: int = 1800) -> str:
+    def get_download_url(self, object_key: str, *, expires_in: int = 1800, visibility: str = "private") -> str:
         raise NotImplementedError
 
     @abstractmethod
@@ -182,7 +188,7 @@ class LocalStorage(StorageAdapter):
         stored["backend"] = self.backend
         return stored
 
-    def save_file(self, *, project_id: int, source_path: Path, object_key: str | None = None, content_type: str | None = None) -> StoredObject:
+    def save_file(self, *, project_id: int, source_path: Path, object_key: str | None = None, content_type: str | None = None, visibility: str = "public") -> StoredObject:
         source = source_path.resolve()
         if not source.exists() or not source.is_file():
             raise StorageError("Source file does not exist.")
@@ -208,13 +214,13 @@ class LocalStorage(StorageAdapter):
     def open(self, path_or_key: str):
         return Path(path_or_key).open("rb")
 
-    def exists(self, path_or_key: str, *, expected_size: int | None = None) -> bool:
+    def exists(self, path_or_key: str, *, expected_size: int | None = None, visibility: str = "public") -> bool:
         path = Path(path_or_key)
         if not path.exists() or not path.is_file():
             return False
         return expected_size is None or path.stat().st_size == expected_size
 
-    def delete(self, path_or_key: str) -> None:
+    def delete(self, path_or_key: str, *, visibility: str = "public") -> None:
         Path(path_or_key).unlink(missing_ok=True)
 
     def get_object_key(self, stored: StoredObject | dict) -> str | None:
@@ -223,7 +229,7 @@ class LocalStorage(StorageAdapter):
     def get_public_url(self, object_key: str) -> str | None:
         return None
 
-    def get_download_url(self, object_key: str, *, expires_in: int = 1800) -> str:
+    def get_download_url(self, object_key: str, *, expires_in: int = 1800, visibility: str = "private") -> str:
         raise StorageError("Local storage does not create presigned object URLs.")
 
     def temporary_url(self, path: str) -> str:
@@ -245,29 +251,49 @@ def _read_r2_config() -> R2Config:
         endpoint_url = f"https://{account_id}.r2.cloudflarestorage.com"
     access_key_id = os.getenv("R2_ACCESS_KEY_ID", "").strip()
     secret_access_key = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
-    bucket_name = os.getenv("R2_BUCKET_NAME", "").strip()
+    legacy_bucket_name = os.getenv("R2_BUCKET_NAME", "").strip()
+    public_bucket_name = os.getenv("R2_PUBLIC_BUCKET_NAME", "").strip()
+    private_bucket_name = os.getenv("R2_PRIVATE_BUCKET_NAME", "").strip()
     public_base_url = os.getenv("R2_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    bucket_mode = "dual"
+    bucket_missing: list[str] = []
+    if public_bucket_name or private_bucket_name:
+        if not public_bucket_name:
+            bucket_missing.append("R2_PUBLIC_BUCKET_NAME")
+        if not private_bucket_name:
+            bucket_missing.append("R2_PRIVATE_BUCKET_NAME")
+    elif legacy_bucket_name:
+        bucket_mode = "single"
+        public_bucket_name = legacy_bucket_name
+        private_bucket_name = legacy_bucket_name
+    else:
+        bucket_missing.extend(["R2_PUBLIC_BUCKET_NAME and R2_PRIVATE_BUCKET_NAME", "or R2_BUCKET_NAME"])
     missing = [
         name
         for name, value in {
             "R2_ENDPOINT_URL or R2_ACCOUNT_ID": endpoint_url,
             "R2_ACCESS_KEY_ID": access_key_id,
             "R2_SECRET_ACCESS_KEY": secret_access_key,
-            "R2_BUCKET_NAME": bucket_name,
             "R2_PUBLIC_BASE_URL": public_base_url,
         }.items()
         if not value
-    ]
+    ] + bucket_missing
     if missing:
         raise StorageError(f"R2 storage is missing required configuration: {', '.join(missing)}.")
+    if not endpoint_url.startswith("https://"):
+        raise StorageError("R2_ENDPOINT_URL must be an HTTPS URL.")
     if not public_base_url.startswith("https://"):
         raise StorageError("R2_PUBLIC_BASE_URL must be an HTTPS URL.")
+    if bucket_mode == "dual" and public_bucket_name == private_bucket_name:
+        raise StorageError("R2_PUBLIC_BUCKET_NAME and R2_PRIVATE_BUCKET_NAME must be different.")
     return R2Config(
         endpoint_url=endpoint_url,
         access_key_id=access_key_id,
         secret_access_key=secret_access_key,
-        bucket_name=bucket_name,
+        public_bucket_name=public_bucket_name,
+        private_bucket_name=private_bucket_name,
         public_base_url=public_base_url,
+        mode=bucket_mode,
     )
 
 
@@ -276,6 +302,7 @@ class R2Storage(StorageAdapter):
 
     def __init__(self, *, client=None, config: R2Config | None = None):
         self.config = config or _read_r2_config()
+        self._validate_config(self.config)
         self._client = client
 
     @property
@@ -299,30 +326,54 @@ class R2Storage(StorageAdapter):
             )
         return self._client
 
-    def _head(self, object_key: str):
-        return self.client.head_object(Bucket=self.config.bucket_name, Key=object_key)
+    @staticmethod
+    def _validate_config(config: R2Config) -> None:
+        if not config.endpoint_url.startswith("https://"):
+            raise StorageError("R2_ENDPOINT_URL must be an HTTPS URL.")
+        if not config.public_base_url.startswith("https://"):
+            raise StorageError("R2_PUBLIC_BASE_URL must be an HTTPS URL.")
+        if config.mode == "dual" and config.public_bucket_name == config.private_bucket_name:
+            raise StorageError("R2_PUBLIC_BUCKET_NAME and R2_PRIVATE_BUCKET_NAME must be different.")
+
+    def _bucket_for_visibility(self, visibility: str) -> str:
+        if visibility == "public":
+            return self.config.public_bucket_name
+        if visibility == "private":
+            return self.config.private_bucket_name
+        raise StorageError(f"Unsupported R2 object visibility: {visibility}.")
+
+    def _head(self, object_key: str, *, visibility: str = "public"):
+        return self.client.head_object(Bucket=self._bucket_for_visibility(visibility), Key=object_key)
+
+    def save_public_asset(self, *, project_id: int, source_path: Path, object_key: str | None = None, content_type: str | None = None) -> StoredObject:
+        return self.save_file(project_id=project_id, source_path=source_path, object_key=object_key, content_type=content_type, visibility="public")
+
+    def save_private_video(self, *, project_id: int, source_path: Path, object_key: str | None = None, content_type: str | None = "video/mp4") -> StoredObject:
+        return self.save_file(project_id=project_id, source_path=source_path, object_key=object_key, content_type=content_type, visibility="private")
 
     def save_upload(self, *, project_id: int, upload: UploadFile) -> StoredObject:
         local = _write_upload_to_local(project_id=project_id, upload=upload)
         object_key = asset_object_key(project_id=project_id, digest=local["digest"], filename=local["original_filename"])
-        stored = self.save_file(project_id=project_id, source_path=Path(local["local_path"]), object_key=object_key, content_type=local["content_type"])
+        stored = self.save_public_asset(project_id=project_id, source_path=Path(local["local_path"]), object_key=object_key, content_type=local["content_type"])
         stored["local_path"] = local["local_path"]
         stored["original_filename"] = local["original_filename"]
         stored["digest"] = local["digest"]
         return stored
 
-    def save_file(self, *, project_id: int, source_path: Path, object_key: str | None = None, content_type: str | None = None) -> StoredObject:
+    def save_file(self, *, project_id: int, source_path: Path, object_key: str | None = None, content_type: str | None = None, visibility: str = "public") -> StoredObject:
         source = source_path.resolve()
         if not source.exists() or not source.is_file():
             raise StorageError("Source file does not exist.")
         key = object_key or build_object_key("projects", project_id, "files", uuid.uuid4().hex, sanitize_filename(source.name))
         size_bytes = source.stat().st_size
-        if self.exists(key, expected_size=size_bytes):
+        bucket = self._bucket_for_visibility(visibility)
+        access_url = self.get_public_url(key) if visibility == "public" else None
+        if self.exists(key, expected_size=size_bytes, visibility=visibility):
             return StoredObject(
                 backend=self.backend,
                 local_path=str(source),
                 object_key=key,
-                access_url=self.get_public_url(key),
+                access_url=access_url,
                 mime_type=content_type or "application/octet-stream",
                 content_type=content_type or "application/octet-stream",
                 size_bytes=size_bytes,
@@ -331,40 +382,40 @@ class R2Storage(StorageAdapter):
         try:
             with source.open("rb") as handle:
                 self.client.put_object(
-                    Bucket=self.config.bucket_name,
+                    Bucket=bucket,
                     Key=key,
                     Body=handle,
                     ContentType=content_type or "application/octet-stream",
-                    CacheControl="public, max-age=31536000" if (content_type or "").startswith("image/") else "private, max-age=0",
+                    CacheControl="public, max-age=31536000" if visibility == "public" else "private, max-age=0",
                 )
         except Exception as exc:
             raise StorageError("R2 upload failed.") from exc
-        if not self.exists(key, expected_size=size_bytes):
+        if not self.exists(key, expected_size=size_bytes, visibility=visibility):
             raise StorageError("R2 upload verification failed.")
         return StoredObject(
             backend=self.backend,
             local_path=str(source),
             object_key=key,
-            access_url=self.get_public_url(key),
+            access_url=access_url,
             mime_type=content_type or "application/octet-stream",
             content_type=content_type or "application/octet-stream",
             size_bytes=size_bytes,
             original_filename=sanitize_filename(source.name),
         )
 
-    def open(self, path_or_key: str):
-        return self.client.get_object(Bucket=self.config.bucket_name, Key=path_or_key)["Body"]
+    def open(self, path_or_key: str, *, visibility: str = "private"):
+        return self.client.get_object(Bucket=self._bucket_for_visibility(visibility), Key=path_or_key)["Body"]
 
-    def exists(self, path_or_key: str, *, expected_size: int | None = None) -> bool:
+    def exists(self, path_or_key: str, *, expected_size: int | None = None, visibility: str = "public") -> bool:
         try:
-            head = self._head(path_or_key)
+            head = self._head(path_or_key, visibility=visibility)
         except Exception:
             return False
         size = int(head.get("ContentLength") or 0)
         return expected_size is None or size == expected_size
 
-    def delete(self, path_or_key: str) -> None:
-        self.client.delete_object(Bucket=self.config.bucket_name, Key=path_or_key)
+    def delete(self, path_or_key: str, *, visibility: str = "public") -> None:
+        self.client.delete_object(Bucket=self._bucket_for_visibility(visibility), Key=path_or_key)
 
     def get_object_key(self, stored: StoredObject | dict) -> str | None:
         return stored.get("object_key")
@@ -373,11 +424,11 @@ class R2Storage(StorageAdapter):
         key = object_key.strip("/")
         return f"{self.config.public_base_url}/{quote(key, safe='/')}"
 
-    def get_download_url(self, object_key: str, *, expires_in: int = 1800) -> str:
+    def get_download_url(self, object_key: str, *, expires_in: int = 1800, visibility: str = "private") -> str:
         expires = min(max(int(expires_in), 300), 3600)
         return self.client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": self.config.bucket_name, "Key": object_key},
+            Params={"Bucket": self._bucket_for_visibility(visibility), "Key": object_key},
             ExpiresIn=expires,
         )
 

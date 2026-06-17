@@ -33,6 +33,11 @@ Environment variables:
 - `CLIPFORGE_V3_ENABLED`: default `false`
 - `V3_VIDEO_PROVIDER`: default `mock`
 - `V3_REAL_API_ENABLED`: default `false`
+- `V3_STORAGE_BACKEND`: default `local`; set to `r2` only when Cloudflare R2 configuration is complete
+- `R2_PUBLIC_BUCKET_NAME`: public R2 bucket for V3 product reference images
+- `R2_PRIVATE_BUCKET_NAME`: private R2 bucket for V3 generated videos
+- `R2_PUBLIC_BASE_URL`: HTTPS public base URL for product reference images
+- `R2_BUCKET_NAME`: backward-compatible single-bucket R2 configuration only
 - `SEEDANCE_PROVIDER`: default `ark`
 - `SEEDANCE_MODEL`: Seedance model ID for V3 provider adapter
 - `SEEDANCE_BASE_URL`: Seedance provider base URL

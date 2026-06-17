@@ -3,7 +3,7 @@
 ## Current State
 
 - Current development branch: `clipforge-v3-real-provider-alpha`
-- Current branch HEAD at start of object storage pass: `0e89872d229e48086df62e44055f799c61af7fbf`
+- Current branch HEAD at start of dual-bucket R2 pass: `20ea06c42a0e5812520105a488596fcd597df029`
 - Last verified functional baseline: `b18b6974fd63f748fe37a140644f8b83c212efc8`
 - ClipForge 3.0 is in Real Provider Alpha.
 - Mock workflow is runnable.
@@ -23,8 +23,9 @@
 - The recovered real task downloaded successfully, created one Take, and recorded one provider generation usage/cost event.
 - Real provider task count remains `1`.
 - Cloudflare R2 object storage support is implemented behind `V3_STORAGE_BACKEND=r2` with LocalStorage still the default.
+- R2 dual-bucket mode is supported: product reference images use `R2_PUBLIC_BUCKET_NAME`, generated videos use `R2_PRIVATE_BUCKET_NAME`, and old `R2_BUCKET_NAME` single-bucket mode remains supported for compatibility.
 - Product image uploads can store `storage_backend`, `object_key`, `content_type`, `size_bytes`, and a stable HTTPS `access_url`.
-- Generated provider videos can be uploaded to R2 after download; Take rows can store `storage_backend`, `object_key`, `content_type`, and `size_bytes`.
+- Generated provider videos can be uploaded to private R2 storage after download; Take rows can store `storage_backend`, `object_key`, `content_type`, and `size_bytes` without persisting presigned URLs.
 - R2 tests use mocked S3/R2 clients only. No real R2 validation has been executed.
 
 ## Verified Commands
@@ -41,7 +42,9 @@ Current recorded results:
 - V3: `84 passed`
 - V3 after download recovery hardening: `101 passed`
 - Real Provider Alpha: `37 passed`
-- Object storage targeted tests: `11 passed`
+- V3 after dual-bucket R2 support: `118 passed`
+- Object storage tests after dual-bucket R2 support: `17 passed`
+- Object storage targeted selector after dual-bucket R2 support: `38 passed, 80 deselected`
 - Legacy routes: `3 passed`
 
 ## Safe Payload Inspection
@@ -61,7 +64,7 @@ This inspector:
 
 1. Review the readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
 2. Review the object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
-3. Use a dedicated test Bucket for one real R2 upload, read, and delete validation after explicit authorization.
+3. Use dedicated public/private test Buckets for one real R2 upload, read, presigned download, and delete validation after explicit authorization.
 4. Add long-running worker soak tests.
 5. Do not deploy production before object storage is complete.
 

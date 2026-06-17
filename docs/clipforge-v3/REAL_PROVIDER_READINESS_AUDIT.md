@@ -362,9 +362,10 @@ Current state:
 
 - Asset uploads use `LocalStorage` by default.
 - `clipforge_v3/services/storage_service.py` now provides `LocalStorage` and `R2Storage`.
-- `V3_STORAGE_BACKEND=r2` uploads product images to R2, verifies the object through `head_object`, and stores `v3_assets.storage_backend`, `object_key`, `content_type`, `size_bytes`, and stable HTTPS `access_url`.
-- Generated provider videos still download from Ark to a temporary local file first. In R2 mode, `_store_provider_video_artifact()` uploads that file to R2, verifies the object, and stores `v3_takes.storage_backend`, `object_key`, `content_type`, and `size_bytes`.
-- Generated videos use service-layer signed GET URLs through `R2Storage.get_download_url()`; presigned URLs are not persisted.
+- `V3_STORAGE_BACKEND=r2` supports dual-bucket R2 mode with `R2_PUBLIC_BUCKET_NAME` for product reference images and `R2_PRIVATE_BUCKET_NAME` for generated videos. The old `R2_BUCKET_NAME` single-bucket mode remains supported for compatibility.
+- Product image uploads verify the public-bucket object through `head_object` and store `v3_assets.storage_backend`, `object_key`, `content_type`, `size_bytes`, and stable HTTPS `access_url`.
+- Generated provider videos still download from Ark to a temporary local file first. In R2 mode, `_store_provider_video_artifact()` uploads that file to the private bucket, verifies the object, and stores `v3_takes.storage_backend`, `object_key`, `content_type`, and `size_bytes`.
+- Generated videos use service-layer signed GET URLs through `R2Storage.get_download_url()` against the private bucket; presigned URLs are not persisted.
 
 Remaining production blockers after object storage code integration:
 
@@ -399,7 +400,7 @@ Current mapping by file:
 - `test_productization.py` (7): UI surfaces, readiness secrecy, storage rejection, traversal blocking, workflow smoke
 - `test_prompt_compiler.py` (11): prompt limits, templates, conflict detection, payload resolution field, error redaction
 - `test_provider_and_preflight.py` (5): fail-open/fail-closed policy and provider capability checks
-- `test_object_storage.py` (11): R2 configuration, key safety, mocked uploads, provider artifact upload recovery, signed URL generation, migration repeatability
+- `test_object_storage.py` (17): dual-bucket R2 configuration, single-bucket compatibility, key safety, mocked uploads, provider artifact upload recovery, signed URL generation, migration repeatability
 - `test_real_provider_alpha.py` (37): paid confirmation, idempotency, HTTPS reference URLs, unknown state, worker polling reuse, crash replay, budget ordering, database constraints, download recovery, inspector safety
 - `test_v3_routes.py` (9): V3 routing, migrations, project creation, invalidation behavior
 - `test_v3_schemas.py` (14): schema validation and planner helper behavior

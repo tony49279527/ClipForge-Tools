@@ -407,7 +407,24 @@ class DbCursor:
         return rows
 
     def column_exists(self, table_name: str, column_name: str) -> bool:
-        return column_name in {row["name"] for row in _pragma_table_info(table_name)}
+        if table_name not in ALL_TABLE_ALLOWLIST:
+            raise ValueError(f"Unsupported table for schema inspection: {table_name}")
+        if is_sqlite():
+            result = self.connection._connection.exec_driver_sql(f"PRAGMA table_info({table_name})")
+            rows = [DbRow(row._mapping) for row in result.fetchall()]
+        else:
+            result = self.connection._connection.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = CURRENT_SCHEMA() AND table_name = :table_name
+                    """
+                ),
+                {"table_name": table_name},
+            )
+            rows = [DbRow({"name": row._mapping["column_name"]}) for row in result.fetchall()]
+        return column_name in {row["name"] for row in rows}
 
 
 class DbConnection:

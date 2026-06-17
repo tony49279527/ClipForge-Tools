@@ -215,4 +215,6 @@ def test_postgresql_export_import_validate_rehearsal(sqlite_sample, tmp_path, mo
         schema_report = comparer.compare_schema(str(sqlite_sample["db_path"]), database_url)
         assert schema_report["status"] == "PASS"
     finally:
+        if "db" in locals():
+            db.get_engine().dispose()
         sys.path.remove(str(SCRIPTS_DIR))

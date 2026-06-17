@@ -40,6 +40,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
       - name: PostgreSQL integration tests
+        timeout-minutes: 10
         run: python -m pytest -q tests/v3/test_postgresql_integration.py tests/v3/test_database_migration_tools.py
       - name: SQLite V3 regression
         env:

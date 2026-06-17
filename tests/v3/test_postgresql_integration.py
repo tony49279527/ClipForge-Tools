@@ -43,7 +43,7 @@ def pg_modules(monkeypatch, tmp_path):
     migrations = importlib.import_module("clipforge_v3.migrations")
     migrations.ensure_v3_schema()
     migrations.ensure_v3_schema()
-    return {
+    modules = {
         "db": db,
         "migrations": migrations,
         "project_repo": importlib.import_module("clipforge_v3.repositories.project_repository"),
@@ -51,6 +51,10 @@ def pg_modules(monkeypatch, tmp_path):
         "shot_repo": importlib.import_module("clipforge_v3.repositories.shot_repository"),
         "take_repo": importlib.import_module("clipforge_v3.repositories.take_repository"),
     }
+    try:
+        yield modules
+    finally:
+        modules["db"].get_engine().dispose()
 
 
 def _project_payload() -> dict[str, Any]:

@@ -189,14 +189,36 @@ Do not pass `--execute` until a human explicitly authorizes Cloud SQL creation.
 4. If PostgreSQL has accepted writes, do not blindly roll back to SQLite without a reconciliation plan.
 5. Never dual-write SQLite and PostgreSQL without explicit event-level reconciliation.
 
-## 14. Known Incomplete Items
+## 14. Test Rehearsal Completed
 
-- No Cloud SQL instance has been created.
+A Cloud SQL PostgreSQL 16 test rehearsal was completed on 2026-06-17 using an isolated instance named `clipforge-pg-test` in `gen-lang-client-0817070175/us-central1`. The instance was deleted after the rehearsal.
+
+Validated:
+
+- SQLAlchemy and psycopg connections through Cloud SQL Auth Proxy.
+- PostgreSQL 16 version check.
+- Commit, rollback, reconnect, and failed-password behavior.
+- Legacy schema initialization.
+- V3 migration repeatability.
+- Existing migration-tool PostgreSQL rehearsal test.
+- Representative SQLite export/import/validation with Legacy jobs, V3 projects, Product Truth, assets, shots, prompt versions, preflight, generation submissions, Take, usage/cost, and operation events.
+- Unique conflict rollback.
+- Non-empty database import refusal.
+- PostgreSQL sequence correction after import.
+- Read-only production SQLite copy export/dry-run/validate-only.
+
+The full `tests/v3/test_postgresql_integration.py` run timed out on the remote `db-f1-micro` test instance after 900 seconds because it rebuilds schema repeatedly. No assertion failure was observed before timeout, but this suite should be optimized or run on a larger disposable instance before production cutover.
+
+Detailed report: `docs/clipforge-v3/CLOUD_SQL_TEST_REHEARSAL.md`.
+
+## 15. Known Incomplete Items
+
 - No production data has been migrated.
 - Cloud Run still has not been switched to PostgreSQL.
+- The Cloud SQL test instance used for rehearsal has been deleted.
 - Real PostgreSQL integration is only run when `POSTGRES_TEST_DATABASE_URL` points to a disposable test database.
 - Repositories still use a compatibility cursor API and should eventually move to explicit SQLAlchemy Core statements.
 
-## 15. Single Next Task
+## 16. Single Next Task
 
-Create a dedicated Cloud SQL PostgreSQL test instance and complete a schema, connection, and data migration rehearsal using copied non-mutating data.
+In a maintenance window, create a consistent SQLite backup, migrate to a final Cloud SQL PostgreSQL instance, and switch a new Cloud Run revision to Secret Manager-backed `DATABASE_URL`; if validation fails, route traffic back to the SQLite revision.

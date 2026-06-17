@@ -37,7 +37,8 @@
 - Key V3 repository paths for projects, assets, shots, prompt versions, generation submissions, Takes, and generation usage events now use named-parameter database helpers instead of relying only on SQLite-style `?` conversion.
 - GitHub Actions PostgreSQL integration workflow is configured with a PostgreSQL 16 service container. Local runs skip PostgreSQL integration unless `POSTGRES_TEST_DATABASE_URL` is set.
 - SQLite export, PostgreSQL import, schema compare, and migration validation rehearsal tools exist under `scripts/v3/`.
-- Production Cloud Run has not been switched to PostgreSQL, Cloud SQL has not been created, and production SQLite data has not been migrated.
+- A Cloud SQL PostgreSQL 16 test instance rehearsal has been completed and the test instance was deleted afterward.
+- Production Cloud Run has not been switched to PostgreSQL, no production Cloud SQL database is active, and production SQLite data has not been migrated.
 
 ## Verified Commands
 
@@ -62,6 +63,7 @@ Current recorded results:
 - PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
 - Temporary Cloud Run database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
 - Cloud Run Secret Manager hardening: `docs/clipforge-v3/CLOUD_RUN_SECRET_HARDENING.md`
+- Cloud SQL PostgreSQL test rehearsal: `docs/clipforge-v3/CLOUD_SQL_TEST_REHEARSAL.md`
 
 ## Safe Payload Inspection
 
@@ -84,8 +86,9 @@ This inspector:
 4. Review the PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
 5. Review temporary database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
 6. Review Cloud Run Secret Manager hardening: `docs/clipforge-v3/CLOUD_RUN_SECRET_HARDENING.md`
-7. Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal before enabling real production writes.
-8. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
+7. Review Cloud SQL PostgreSQL test rehearsal: `docs/clipforge-v3/CLOUD_SQL_TEST_REHEARSAL.md`
+8. In a maintenance window, create a consistent SQLite backup, migrate to a final Cloud SQL PostgreSQL instance, and switch a new Cloud Run revision to Secret Manager-backed `DATABASE_URL`.
+9. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
 
 ## Real Paid Test Protection
 
@@ -109,7 +112,7 @@ Automatic repeated tests are forbidden.
 ## Not Complete
 
 - Private R2 video playback/download UI integration
-- Cloud SQL PostgreSQL test instance and migration rehearsal
+- Production Cloud SQL PostgreSQL instance and cutover
 - Production Cloud Run switch to PostgreSQL
 - R2 token rotation after migration from plaintext Cloud Run env vars to Secret Manager
 - Batch real-product validation

@@ -178,7 +178,7 @@ Update on 2026-06-17:
 - The GCSFuse `/data` mount is still present.
 - `DATA_DIR=/data` and `DB_PATH=/data/clipforge.db` are still active.
 - `DATABASE_URL` is still unset in Cloud Run.
-- Cloud SQL has not been created.
+- A Cloud SQL PostgreSQL 16 test rehearsal has been completed and the test instance was deleted afterward.
 - Production data has not been migrated to PostgreSQL.
 
 This update reduces simultaneous writer risk, but it does not make SQLite on GCSFuse production-safe.
@@ -355,9 +355,23 @@ Rollback options:
 - Restore `DATA_DIR=/data` and SQLite settings only for read-only emergency access.
 - Do not perform new writes into both SQLite and PostgreSQL unless a formal dual-write reconciliation plan exists.
 
-## 13. Single Next Recommended Task
+## 13. Cloud SQL Test Rehearsal Update
 
-**Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal using copied non-mutating data.**
+The disposable PostgreSQL test rehearsal has been completed and documented in `docs/clipforge-v3/CLOUD_SQL_TEST_REHEARSAL.md`.
+
+Important results:
+
+- A Cloud SQL PostgreSQL 16 test instance was created, used, and deleted.
+- Cloud SQL Auth Proxy connection worked from local rehearsal tooling.
+- Representative SQLite export/import/validation passed.
+- A read-only production SQLite copy passed integrity check and export/dry-run/validate-only.
+- Production Cloud Run still has no `DATABASE_URL`.
+- Production Cloud Run still uses `/data/clipforge.db` on GCSFuse.
+- Production data has not been migrated.
+
+## 14. Single Next Recommended Task
+
+**In a maintenance window, create a consistent SQLite backup, migrate to a final Cloud SQL PostgreSQL instance, and switch Cloud Run `DATABASE_URL` to Cloud SQL with a clear rollback plan.**
 
 Do not run Ark, Seedance, paid generation, or production write tests until the database persistence risk is addressed or temporary safeguards are explicitly applied.
 

@@ -492,15 +492,15 @@ Remaining high-risk gaps:
 
 1. No operator reconciliation workflow exists yet for `unknown_submission_state`.
 2. Only one real Ark task has been validated; broader product and provider-state coverage is still missing.
-3. Cloud Run currently stores SQLite at `/data/clipforge.db` on a GCSFuse mount. Logs show repeated `clipforge.db-shm` out-of-order write errors, while Cloud Run allows concurrency `80` and max scale `20`.
+3. Cloud Run currently stores SQLite at `/data/clipforge.db` on a GCSFuse mount. Earlier logs showed repeated `clipforge.db-shm` out-of-order write errors. Temporary safeguards now reduce Cloud Run concurrency and max instances to `1`, but SQLite-on-GCSFuse remains unsafe for production writes.
 4. R2 code is implemented and smoke-validated against Cloudflare R2 public/private buckets.
 5. Private R2 generated-video playback is not yet wired into the UI.
-6. PostgreSQL support is not yet deployed to Cloud Run and production data has not been migrated.
+6. Cloud SQL PostgreSQL test rehearsal passed and the test instance was deleted, but PostgreSQL support is not yet deployed to Cloud Run and production data has not been migrated.
 
 ## 15. Recommended Development Order
 
-1. Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal
-2. Apply temporary Cloud Run safeguards if any online writes must happen before the migration
+1. In a maintenance window, create a consistent SQLite backup, migrate to final Cloud SQL PostgreSQL, and switch a new Cloud Run revision to Secret Manager-backed `DATABASE_URL`
+2. Keep temporary Cloud Run safeguards if any online writes must happen before the migration
 3. Add UI integration for private R2 generated-video playback/download
 4. Add long-running worker soak testing with R2 enabled
 5. Implement operator reconciliation for `unknown_submission_state`
@@ -510,14 +510,15 @@ Remaining high-risk gaps:
 
 ## 16. Single Next Recommended Task
 
-**Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal.**
+**In a maintenance window, create a consistent SQLite backup, migrate to final Cloud SQL PostgreSQL, and switch Cloud Run `DATABASE_URL` to Cloud SQL with rollback prepared.**
 
 Scope of that task:
 
-- provision an isolated PostgreSQL test database
-- run schema initialization through `DATABASE_URL`
-- rehearse import from a copied SQLite database
-- validate Legacy and V3 row counts and representative records
+- provision final PostgreSQL database
+- take a controlled SQLite backup
+- import and validate production data
+- deploy a new Cloud Run revision with Cloud SQL connection and Secret Manager-backed `DATABASE_URL`
+- validate Legacy and V3 reads/writes
 - keep production Cloud Run on its current database until rehearsal passes
 
 That is the highest-leverage next step because R2 has passed smoke validation, but the current Cloud Run SQLite-on-GCSFuse topology is not safe for production writes or paid-provider state.

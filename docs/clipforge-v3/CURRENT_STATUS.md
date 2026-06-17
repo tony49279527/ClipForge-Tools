@@ -31,6 +31,7 @@
 - Cloud Run now has `CLIPFORGE_V3_ENABLED=true`; `/`, `/v3`, and `/v3/ready` returned HTTP 200 after the Secret Manager hardening revision.
 - Cloud Run sensitive environment variables are now referenced through Secret Manager in revision `clipforge-tools-00104-hwm`; same-name plaintext sensitive values were removed from the service configuration.
 - Cloud Run has temporary SQLite/GCSFuse safeguards: container concurrency is `1` and max instances is `1`.
+- Maintenance write-freeze support is implemented behind `CLIPFORGE_MAINTENANCE_MODE=false` by default. When enabled, read-only GET pages and health checks remain available while business write requests, queue enqueue, and provider-generation worker starts are blocked.
 - Cloud Run database persistence is still not production-safe: `/data/clipforge.db` is on a GCSFuse mount, and earlier SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors.
 - Offline integrity check of a copied `clipforge.db` returned `ok`, but that only proves the copied main database file was readable at audit time; it does not make GCSFuse-backed SQLite safe for writes.
 - `DATABASE_URL`-driven SQLite/PostgreSQL backend selection is now implemented in code using SQLAlchemy Core and `psycopg`, while local development and automated tests continue to default to SQLite.
@@ -64,6 +65,7 @@ Current recorded results:
 - Temporary Cloud Run database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
 - Cloud Run Secret Manager hardening: `docs/clipforge-v3/CLOUD_RUN_SECRET_HARDENING.md`
 - Cloud SQL PostgreSQL test rehearsal: `docs/clipforge-v3/CLOUD_SQL_TEST_REHEARSAL.md`
+- Maintenance write-freeze tests: `tests/v3/test_maintenance_mode.py`
 
 ## Safe Payload Inspection
 

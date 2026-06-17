@@ -16,6 +16,8 @@ from redis import Redis
 from rq import Queue, Retry
 from rq.job import Job as RQJob
 
+from clipforge_v3.services.maintenance_service import assert_writes_allowed
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -40,6 +42,7 @@ STATIC_JOB_PREFIXES = ("video", "prompts", "storyboard_video", "publish", "v3_bo
 
 def _enqueue_with_reusable_job_id(*, job_id: str, func: str, args: List[Any], job_timeout: int) -> RQJob:
     """Enqueue with a stable job id, reusing active jobs and replacing finished ones."""
+    assert_writes_allowed()
     q = get_queue()
     redis_conn = get_redis()
 
@@ -163,6 +166,7 @@ def enqueue_v3_generation_job(submission_id: int, idempotency_key: str) -> RQJob
 
 def run_video_job_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper that runs the 1.0 video job with parallel clip generation."""
+    assert_writes_allowed()
     from video_core import ensure_runtime_dirs, run_video_job_parallel
     ensure_runtime_dirs()
     return run_video_job_parallel(job_id)
@@ -170,6 +174,7 @@ def run_video_job_wrapper(job_id: int) -> Dict[str, Any]:
 
 def run_storyboard_prompts_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper for storyboard prompt generation."""
+    assert_writes_allowed()
     from app import generate_storyboard_prompts_job as _run
     _run(job_id)
     return {"job_id": job_id, "stage": "prompts_ready"}
@@ -177,6 +182,7 @@ def run_storyboard_prompts_wrapper(job_id: int) -> Dict[str, Any]:
 
 def run_storyboard_images_wrapper(job_id: int, base_url: str, frame_id: int = None) -> Dict[str, Any]:
     """Wrapper for storyboard image generation."""
+    assert_writes_allowed()
     from app import generate_storyboard_images_job as _run
     _run(job_id, base_url, frame_id)
     return {"job_id": job_id, "stage": "images_ready"}
@@ -184,6 +190,7 @@ def run_storyboard_images_wrapper(job_id: int, base_url: str, frame_id: int = No
 
 def run_storyboard_video_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper for 2.0 storyboard video generation."""
+    assert_writes_allowed()
     from video_core import ensure_runtime_dirs, run_storyboard_video_job_parallel
     ensure_runtime_dirs()
     return run_storyboard_video_job_parallel(job_id)
@@ -191,6 +198,7 @@ def run_storyboard_video_wrapper(job_id: int) -> Dict[str, Any]:
 
 def run_publish_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper for YouTube publishing."""
+    assert_writes_allowed()
     from app import publish_v2_job as _run
     _run(job_id)
     return {"job_id": job_id, "stage": "published"}
@@ -198,6 +206,7 @@ def run_publish_wrapper(job_id: int) -> Dict[str, Any]:
 
 def run_v3_bootstrap_wrapper(project_id: int) -> Dict[str, Any]:
     """Wrapper for v3 service tasks without importing app.py."""
+    assert_writes_allowed()
     from clipforge_v3.tasks import bootstrap_project_task
 
     return bootstrap_project_task(project_id)
@@ -205,6 +214,7 @@ def run_v3_bootstrap_wrapper(project_id: int) -> Dict[str, Any]:
 
 def run_v3_generation_wrapper(submission_id: int) -> Dict[str, Any]:
     """Wrapper for v3 provider generation without importing app.py."""
+    assert_writes_allowed()
     from clipforge_v3.tasks import run_generation_submission_task
 
     return run_generation_submission_task(submission_id)

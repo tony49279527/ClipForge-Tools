@@ -46,6 +46,23 @@ SQL_IDENTIFIER_ALLOWLIST = {
     "templates",
     "usage_events",
 }
+ALL_TABLE_ALLOWLIST = SQL_IDENTIFIER_ALLOWLIST | {
+    "schema_migrations",
+    "v3_projects",
+    "v3_product_truth",
+    "v3_assets",
+    "v3_shots",
+    "v3_prompt_versions",
+    "v3_takes",
+    "v3_reviews",
+    "v3_continuity_states",
+    "v3_usage_events",
+    "v3_preflight_checks",
+    "v3_final_assemblies",
+    "v3_retake_plans",
+    "v3_generation_submissions",
+    "v3_operation_events",
+}
 
 
 class DatabaseIntegrityError(_sqlite3.IntegrityError):
@@ -300,23 +317,22 @@ def _pragma_table_info(table_name: str) -> list[DbRow]:
 
 
 def _all_v3_table_names() -> set[str]:
-    return {
-        "schema_migrations",
-        "v3_projects",
-        "v3_product_truth",
-        "v3_assets",
-        "v3_shots",
-        "v3_prompt_versions",
-        "v3_takes",
-        "v3_reviews",
-        "v3_continuity_states",
-        "v3_usage_events",
-        "v3_preflight_checks",
-        "v3_final_assemblies",
-        "v3_retake_plans",
-        "v3_generation_submissions",
-        "v3_operation_events",
-    }
+    return ALL_TABLE_ALLOWLIST - SQL_IDENTIFIER_ALLOWLIST
+
+
+def _validate_identifier(name: str) -> None:
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+        raise ValueError(f"Unsafe SQL identifier: {name}")
+
+
+def _validate_table(table_name: str) -> None:
+    if table_name not in ALL_TABLE_ALLOWLIST:
+        raise ValueError(f"Unsupported table: {table_name}")
+
+
+def _validate_columns(columns: Sequence[str]) -> None:
+    for column in columns:
+        _validate_identifier(column)
 
 
 class DbCursor:
@@ -477,6 +493,61 @@ def fetch_all(sql: str, params: Sequence[Any] | Mapping[str, Any] | None = None)
         return conn.execute(sql, params).fetchall()
     finally:
         conn.close()
+
+
+def select_one(sql: str, params: Mapping[str, Any] | None = None) -> DbRow | None:
+    return fetch_one(sql, params or {})
+
+
+def select_all(sql: str, params: Mapping[str, Any] | None = None) -> list[DbRow]:
+    return fetch_all(sql, params or {})
+
+
+def execute_write(sql: str, params: Mapping[str, Any] | None = None) -> int:
+    conn = get_conn()
+    try:
+        cur = conn.execute(sql, params or {})
+        rowcount = cur.rowcount
+        conn.commit()
+        return rowcount
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def insert_row(table_name: str, values: Mapping[str, Any]) -> int:
+    _validate_table(table_name)
+    _validate_columns(list(values.keys()))
+    columns = list(values.keys())
+    column_sql = ", ".join(columns)
+    value_sql = ", ".join(f":{column}" for column in columns)
+    sql = f"INSERT INTO {table_name} ({column_sql}) VALUES ({value_sql})"
+    if is_postgresql():
+        sql += " RETURNING id"
+    conn = get_conn()
+    try:
+        cur = conn.execute(sql, dict(values))
+        row_id = cur.fetchone()["id"] if is_postgresql() else cur.lastrowid
+        conn.commit()
+        return int(row_id)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def update_row_by_id(table_name: str, row_id: int, values: Mapping[str, Any]) -> int:
+    if not values:
+        return 0
+    _validate_table(table_name)
+    _validate_columns(list(values.keys()))
+    assignments = ", ".join(f"{column} = :{column}" for column in values)
+    params = dict(values)
+    params["id"] = row_id
+    return execute_write(f"UPDATE {table_name} SET {assignments} WHERE id = :id", params)
 
 
 def init_db() -> None:

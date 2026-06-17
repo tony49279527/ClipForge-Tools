@@ -170,6 +170,19 @@ This means the copied main database file was readable and structurally intact at
 
 ## 7. Short-Term Safeguards
 
+Update on 2026-06-17:
+
+- Cloud Run container concurrency has been temporarily reduced to `1`.
+- Cloud Run max instances has been temporarily reduced to `1`.
+- Min instances remains `1`.
+- The GCSFuse `/data` mount is still present.
+- `DATA_DIR=/data` and `DB_PATH=/data/clipforge.db` are still active.
+- `DATABASE_URL` is still unset in Cloud Run.
+- Cloud SQL has not been created.
+- Production data has not been migrated to PostgreSQL.
+
+This update reduces simultaneous writer risk, but it does not make SQLite on GCSFuse production-safe.
+
 Until the database is moved off GCSFuse, the safest operational posture is to avoid production writes.
 
 Recommended temporary safeguards:

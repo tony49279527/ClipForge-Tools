@@ -28,8 +28,10 @@
 - Generated provider videos can be uploaded to private R2 storage after download; Take rows can store `storage_backend`, `object_key`, `content_type`, and `size_bytes` without persisting presigned URLs.
 - R2 tests use mocked S3/R2 clients in CI/local regression.
 - A real R2 smoke validation has been executed with dedicated smoke-test objects: public upload/read/delete passed, private upload/presigned-read/delete passed, and test objects were cleaned up.
-- Cloud Run now has `CLIPFORGE_V3_ENABLED=true`; `/v3` and `/v3/ready` returned HTTP 200 after deployment.
-- Cloud Run database persistence is not production-safe: `/data/clipforge.db` is on a GCSFuse mount, SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors, and the service currently allows concurrency `80` with max scale `20`.
+- Cloud Run now has `CLIPFORGE_V3_ENABLED=true`; `/`, `/v3`, and `/v3/ready` returned HTTP 200 after the Secret Manager hardening revision.
+- Cloud Run sensitive environment variables are now referenced through Secret Manager in revision `clipforge-tools-00104-hwm`; same-name plaintext sensitive values were removed from the service configuration.
+- Cloud Run has temporary SQLite/GCSFuse safeguards: container concurrency is `1` and max instances is `1`.
+- Cloud Run database persistence is still not production-safe: `/data/clipforge.db` is on a GCSFuse mount, and earlier SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors.
 - Offline integrity check of a copied `clipforge.db` returned `ok`, but that only proves the copied main database file was readable at audit time; it does not make GCSFuse-backed SQLite safe for writes.
 - `DATABASE_URL`-driven SQLite/PostgreSQL backend selection is now implemented in code using SQLAlchemy Core and `psycopg`, while local development and automated tests continue to default to SQLite.
 - Key V3 repository paths for projects, assets, shots, prompt versions, generation submissions, Takes, and generation usage events now use named-parameter database helpers instead of relying only on SQLite-style `?` conversion.
@@ -59,6 +61,7 @@ Current recorded results:
 - Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
 - PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
 - Temporary Cloud Run database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
+- Cloud Run Secret Manager hardening: `docs/clipforge-v3/CLOUD_RUN_SECRET_HARDENING.md`
 
 ## Safe Payload Inspection
 
@@ -80,8 +83,9 @@ This inspector:
 3. Review the Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
 4. Review the PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
 5. Review temporary database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
-6. Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal before enabling real production writes.
-7. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or explicit temporary safeguards are applied.
+6. Review Cloud Run Secret Manager hardening: `docs/clipforge-v3/CLOUD_RUN_SECRET_HARDENING.md`
+7. Create a dedicated Cloud SQL PostgreSQL test instance and complete schema, connection, and data migration rehearsal before enabling real production writes.
+8. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
 
 ## Real Paid Test Protection
 
@@ -107,6 +111,7 @@ Automatic repeated tests are forbidden.
 - Private R2 video playback/download UI integration
 - Cloud SQL PostgreSQL test instance and migration rehearsal
 - Production Cloud Run switch to PostgreSQL
+- R2 token rotation after migration from plaintext Cloud Run env vars to Secret Manager
 - Batch real-product validation
 - Long-running Worker tests
 - External user authentication

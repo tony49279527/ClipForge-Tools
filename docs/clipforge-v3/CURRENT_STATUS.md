@@ -29,6 +29,8 @@
 - R2 tests use mocked S3/R2 clients in CI/local regression.
 - A real R2 smoke validation has been executed with dedicated smoke-test objects: public upload/read/delete passed, private upload/presigned-read/delete passed, and test objects were cleaned up.
 - Cloud Run now has `CLIPFORGE_V3_ENABLED=true`; `/v3` and `/v3/ready` returned HTTP 200 after deployment.
+- Cloud Run database persistence is not production-safe: `/data/clipforge.db` is on a GCSFuse mount, SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors, and the service currently allows concurrency `80` with max scale `20`.
+- Offline integrity check of a copied `clipforge.db` returned `ok`, but that only proves the copied main database file was readable at audit time; it does not make GCSFuse-backed SQLite safe for writes.
 
 ## Verified Commands
 
@@ -49,6 +51,7 @@ Current recorded results:
 - Object storage targeted selector after dual-bucket R2 support: `38 passed, 80 deselected`
 - Legacy routes: `3 passed`
 - Real R2 smoke script: `scripts/v3/test_real_r2_storage.py`
+- Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
 
 ## Safe Payload Inspection
 
@@ -67,9 +70,9 @@ This inspector:
 
 1. Review the readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
 2. Review the object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
-3. Add signed playback/download UI integration for private R2 videos.
-4. Add long-running worker soak tests.
-5. Do not run paid generation from the deployed V3 UI until a separate no-regression production-readiness pass is complete.
+3. Review the Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
+4. Implement the Cloud SQL PostgreSQL migration plan before enabling real production writes.
+5. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or explicit temporary safeguards are applied.
 
 ## Real Paid Test Protection
 
@@ -93,6 +96,7 @@ Automatic repeated tests are forbidden.
 ## Not Complete
 
 - Private R2 video playback/download UI integration
+- Cloud SQL/PostgreSQL database backend for Cloud Run writes
 - Batch real-product validation
 - Long-running Worker tests
 - External user authentication

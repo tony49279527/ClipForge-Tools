@@ -12,7 +12,7 @@ Resolved in state-machine hardening commit:
 2. Provider success persistence is replay-safe. A generation submission can own only one Take through `v3_takes.generation_submission_id`, and video generation cost can be written only once through `v3_usage_events.event_key`.
 3. New real-provider submissions run `_ensure_budget()` before `reserve_generation_submission()`, and old `reserved` rows without `budget_approved_at` cannot be submitted automatically.
 
-Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. Real R2 public/private smoke validation has passed without Ark generation; the next storage task is private generated-video playback/download UI integration.
+Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. Real R2 public/private smoke validation has passed without Ark generation. A later Cloud Run database audit found that `/data/clipforge.db` is currently on a GCSFuse mount with SQLite WAL/SHM out-of-order write errors, so the next platform task is moving online state to Cloud SQL PostgreSQL before allowing production writes.
 
 ## 2. Current Repository Baseline
 
@@ -492,29 +492,31 @@ Remaining high-risk gaps:
 
 1. No operator reconciliation workflow exists yet for `unknown_submission_state`.
 2. Only one real Ark task has been validated; broader product and provider-state coverage is still missing.
-3. R2 code is implemented and smoke-validated against Cloudflare R2 public/private buckets.
-4. Private R2 generated-video playback is not yet wired into the UI.
+3. Cloud Run currently stores SQLite at `/data/clipforge.db` on a GCSFuse mount. Logs show repeated `clipforge.db-shm` out-of-order write errors, while Cloud Run allows concurrency `80` and max scale `20`.
+4. R2 code is implemented and smoke-validated against Cloudflare R2 public/private buckets.
+5. Private R2 generated-video playback is not yet wired into the UI.
 
 ## 15. Recommended Development Order
 
-1. Add UI integration for private R2 generated-video playback/download
-2. Add long-running worker soak testing with R2 enabled
-3. Implement operator reconciliation for `unknown_submission_state`
-4. Perform long-running worker soak tests
-5. Expand real-product validation batch coverage
-6. Add external authentication/authorization
-7. Prepare production deployment
+1. Implement Cloud SQL PostgreSQL backend support through a `DATABASE_URL` abstraction while keeping SQLite for local development and tests
+2. Apply temporary Cloud Run safeguards if any online writes must happen before the migration
+3. Add UI integration for private R2 generated-video playback/download
+4. Add long-running worker soak testing with R2 enabled
+5. Implement operator reconciliation for `unknown_submission_state`
+6. Expand real-product validation batch coverage
+7. Add external authentication/authorization
+8. Prepare production deployment
 
 ## 16. Single Next Recommended Task
 
-**Add UI integration for private R2 generated-video playback/download.**
+**Implement a database backend migration plan for Cloud SQL PostgreSQL, starting with a `DATABASE_URL` abstraction while keeping SQLite for local development and tests.**
 
 Scope of that task:
 
-- use explicit R2 credentials supplied through environment/secret storage, not chat
-- validate one product-image object upload and public HTTPS read
-- validate one generated-video style object upload and presigned GET
-- validate delete/cleanup on the dedicated test bucket
-- verify no Ark/Seedance submit path is invoked
+- add a database backend abstraction in `db.py`
+- keep current SQLite behavior for local tests
+- add PostgreSQL connection support for Cloud Run
+- port migrations/repository SQL away from SQLite-only assumptions
+- prepare a safe export/import and rollback plan for the current SQLite data
 
-That is the highest-leverage next step because real R2 endpoint behavior, bucket policy, public URL configuration, and signed URL semantics have passed smoke validation, while generated-video playback still lacks a user-facing signed-download path.
+That is the highest-leverage next step because R2 has passed smoke validation, but the current Cloud Run SQLite-on-GCSFuse topology is not safe for production writes or paid-provider state.

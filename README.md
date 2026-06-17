@@ -193,6 +193,7 @@ V3 docs:
 Current V3 development status: `docs/clipforge-v3/CURRENT_STATUS.md`
 Real Provider readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
 Object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
+Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
 
 - `docs/clipforge-v3/README.md`
 - `docs/clipforge-v3/user-guide-zh.md`
@@ -269,7 +270,7 @@ This repo is prepared for Cloud Run:
 Important Cloud Run limits and recommendations:
 
 1. Cloud Run request timeout defaults to 300 seconds. For this app, set the Cloud Run timeout to `3600` seconds.
-2. Cloud Run local filesystem is temporary. `outputs/`, `uploads/`, and `data/` are acceptable for V1 testing only. Production should move to Cloud Storage and Cloud SQL.
+2. Cloud Run local filesystem is temporary. `outputs/`, `uploads/`, and `data/` are acceptable for V1 testing only. Production should move to object storage and Cloud SQL/PostgreSQL. Do not run production writes against SQLite on a GCSFuse mount.
 3. Set concurrency to `1` for the web service because Seedance generation and FFmpeg stitching are heavy tasks.
 4. Recommended resources: memory `2GiB`, CPU `2`.
 5. FFmpeg is already installed in the Dockerfile.

@@ -28,6 +28,7 @@ jobs:
     env:
       CLIPFORGE_V3_ENABLED: "true"
       POSTGRES_TEST_DATABASE_URL: postgresql+psycopg://clipforge_test:clipforge_test_password@127.0.0.1:5432/clipforge_test
+      DATABASE_STATEMENT_TIMEOUT_MS: "5000"
       SEEDANCE_PROVIDER: "ark"
       SEEDANCE_MODEL: "mock-seedance"
       SEEDANCE_BASE_URL: "https://example.invalid"
@@ -39,9 +40,12 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
-      - name: PostgreSQL integration tests
+      - name: PostgreSQL repository integration tests
         timeout-minutes: 10
-        run: python -m pytest -q tests/v3/test_postgresql_integration.py tests/v3/test_database_migration_tools.py
+        run: python -m pytest -vv tests/v3/test_postgresql_integration.py
+      - name: PostgreSQL migration rehearsal tests
+        timeout-minutes: 10
+        run: python -m pytest -vv tests/v3/test_database_migration_tools.py
       - name: SQLite V3 regression
         env:
           POSTGRES_TEST_DATABASE_URL: ""

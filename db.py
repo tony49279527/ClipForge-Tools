@@ -176,6 +176,15 @@ def get_engine() -> Engine:
             max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "5")),
             future=True,
         )
+        statement_timeout_ms = os.getenv("DATABASE_STATEMENT_TIMEOUT_MS", "").strip()
+        if statement_timeout_ms:
+            timeout_ms = int(statement_timeout_ms)
+
+            @event.listens_for(_ENGINE, "connect")
+            def _set_postgres_statement_timeout(dbapi_connection: Any, _connection_record: Any) -> None:
+                with dbapi_connection.cursor() as cursor:
+                    cursor.execute(f"SET statement_timeout = {timeout_ms}")
+
         return _ENGINE
     raise RuntimeError(f"Unsupported DATABASE_URL dialect: {dialect}")
 

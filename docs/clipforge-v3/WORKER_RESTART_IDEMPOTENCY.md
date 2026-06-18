@@ -40,3 +40,18 @@ Each case must prove:
 - one usage/cost event
 - no real Ark/Seedance call
 - no infinite retry loop
+
+## Candidate Validation Update
+
+Date: 2026-06-18
+
+- Worker service `clipforge-tools-worker` is running revision `clipforge-tools-worker-00007-zvn`.
+- Web candidate `clipforge-tools-pg-worker-ready` reports Redis and worker readiness as `ok`.
+- Non-paid queue smoke passed via Cloud Run Job `clipforge-queue-smoke`.
+- The retry smoke intentionally raised once, then completed through RQ scheduler retry.
+- `tests/v3/test_real_provider_alpha.py` passed locally and covers duplicate paid submission protection, saved task polling, crash replay, Take idempotency, usage/cost idempotency, and `unknown_submission_state`.
+- No real Ark/Seedance call was made.
+
+Remaining before final cutover:
+
+- Run the final maintenance-window snapshot/import because production SQLite may have changed after the previous candidate import.

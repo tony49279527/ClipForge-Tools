@@ -42,7 +42,8 @@
 - The first PostgreSQL candidate revision `clipforge-tools-00108-sir` failed startup because the `DATABASE_URL` Secret had a malformed Cloud SQL Unix socket host. Secret version `2` corrected the URL without printing or committing the value.
 - The `clipforge-tools-00109-wij` tag returned HTTP `200` for `/` and `/v3/ready`; `/v3/ready` reported database `ok`, Redis/worker unavailable, and storage backend `local` despite R2 environment variables being present. This was traced to readiness reporting using the legacy `STORAGE_BACKEND` variable instead of the actual V3 storage adapter.
 - Follow-up revision `clipforge-tools-pg-r2ready` is tagged `pg-candidate` at `0%` traffic and now reports `storage.backend=r2` and `configured_backend=r2` on `/v3/ready`. Production traffic remains `100%` on SQLite revision `clipforge-tools-00104-hwm`.
-- Redis/worker production candidate is now provisioned: Memorystore Redis `clipforge-redis-prod`, Secret Manager `clipforge-redis-url`, independent Cloud Run worker service `clipforge-tools-worker`, and PostgreSQL web candidate revision `clipforge-tools-pg-redis2` with Redis/worker readiness passing on `/v3/ready`. Production traffic remains `100%` on SQLite revision `clipforge-tools-00104-hwm`.
+- Redis/worker production candidate is now provisioned: Memorystore Redis `clipforge-redis-prod`, Secret Manager `clipforge-redis-url`, independent Cloud Run worker service `clipforge-tools-worker`, and PostgreSQL web candidate revision `clipforge-tools-pg-worker-ready` with Redis/worker readiness passing on `/v3/ready`. Production traffic remains `100%` on SQLite revision `clipforge-tools-00104-hwm`.
+- Non-paid queue smoke passed through Cloud Run Job `clipforge-queue-smoke`: ordinary RQ job finished, retry job intentionally failed once and then finished, failed-registry check passed, and temporary Redis keys/jobs were cleaned up by the smoke script.
 - Traffic was restored to the preserved SQLite revision `clipforge-tools-00104-hwm` after the import blocker was found.
 - Cloud Run database persistence is still not production-safe: `/data/clipforge.db` is on a GCSFuse mount, and earlier SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors.
 - Offline integrity check of a copied `clipforge.db` returned `ok`, but that only proves the copied main database file was readable at audit time; it does not make GCSFuse-backed SQLite safe for writes.
@@ -108,7 +109,7 @@ This inspector:
 8. Review the production database cutover runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`
 9. Review the production cutover Go/No-Go decision: `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`
 10. Review the production PostgreSQL candidate attempt: `docs/clipforge-v3/PRODUCTION_POSTGRES_CANDIDATE.md`
-11. Run non-paid queue smoke and worker restart/idempotency validation before any PostgreSQL traffic switch.
+11. In a short maintenance window, regenerate the final SQLite snapshot, re-import into PostgreSQL, re-run validation, and perform the explicit final 100% traffic cutover only after human approval.
 12. In a maintenance window, create a fresh consistent SQLite backup, import it into Cloud SQL PostgreSQL, validate a tagged PostgreSQL revision, and keep traffic at `0%` until all cutover gates pass.
 13. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
 
@@ -136,7 +137,7 @@ Automatic repeated tests are forbidden.
 - Private R2 video playback/download UI integration
 - Production Cloud SQL PostgreSQL cutover
 - Production Cloud Run switch to PostgreSQL
-- PostgreSQL candidate queue smoke and worker restart/idempotency validation
+- Final fresh production snapshot/import immediately before cutover
 - R2 token rotation after migration from plaintext Cloud Run env vars to Secret Manager
 - Batch real-product validation
 - Long-running Worker tests

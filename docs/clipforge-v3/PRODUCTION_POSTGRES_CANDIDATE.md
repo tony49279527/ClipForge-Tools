@@ -207,10 +207,11 @@ Current assessment:
 - Redis instance `clipforge-redis-prod` is `READY` in `us-central1`, Basic tier, `1GB`, private `default` VPC, no public access.
 - Secret Manager secret `clipforge-redis-url` was created for `REDIS_URL`; the value was not printed or committed.
 - Independent Cloud Run worker service `clipforge-tools-worker` was deployed with min/max instances `1`, concurrency `1`, no unauthenticated public access, Cloud SQL connection, Secret-backed `DATABASE_URL`, Secret-backed `REDIS_URL`, and R2 Secret references.
-- Web candidate revision `clipforge-tools-pg-redis2` is tagged `pg-candidate` with `0%` traffic and uses the Redis Secret.
+- Web candidate revision `clipforge-tools-pg-worker-ready` is tagged `pg-candidate` with `0%` traffic and uses the Redis Secret.
 - `/v3/ready` on the tag reports database `ok`, Redis `ok`, storage `r2`, and worker `ok`.
+- Non-paid queue smoke passed through Cloud Run Job `clipforge-queue-smoke`.
 - Production traffic remains `100%` on SQLite revision `clipforge-tools-00104-hwm`.
-- Do not enable real user writes or paid provider workflows on the PostgreSQL candidate until non-paid queue smoke and worker restart/idempotency validation pass.
+- Do not enable real user writes or paid provider workflows on the PostgreSQL candidate until the final fresh maintenance-window snapshot/import and human cutover approval are complete.
 
 Required next decision:
 
@@ -223,11 +224,9 @@ Required next decision:
 
 Single next task:
 
-Run non-paid queue smoke and worker restart/idempotency validation, then keep the candidate at `0%` traffic until a fresh maintenance-window snapshot/import and final cutover approval.
+In a short maintenance window, regenerate the final SQLite snapshot, re-import into PostgreSQL, re-run validation, and perform the explicit final cutover only after human approval.
 
 Minimum scope:
 
-- Confirm the candidate has the intended Redis/queue configuration.
-- Confirm workers cannot duplicate paid provider submissions after restart.
-- Keep `clipforge-tools-pg-r2ready` at `0%` traffic.
-- Do not route traffic to PostgreSQL until Redis/worker and maintenance/cutover gates are explicitly reviewed.
+- Keep `clipforge-tools-pg-worker-ready` at `0%` traffic until final cutover approval.
+- Do not route traffic to PostgreSQL until the fresh snapshot/import and final preflight pass.

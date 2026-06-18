@@ -40,7 +40,8 @@
 - The existing production candidate snapshot was formally imported into the Cloud SQL candidate database after the schema fix; migration validation and schema compare both passed.
 - A 0% tagged PostgreSQL Cloud Run candidate revision `clipforge-tools-00109-wij` now starts successfully with Secret Manager-backed `DATABASE_URL`; it has not received production traffic.
 - The first PostgreSQL candidate revision `clipforge-tools-00108-sir` failed startup because the `DATABASE_URL` Secret had a malformed Cloud SQL Unix socket host. Secret version `2` corrected the URL without printing or committing the value.
-- The `clipforge-tools-00109-wij` tag returned HTTP `200` for `/` and `/v3/ready`; `/v3/ready` reported database `ok`, Redis/worker unavailable, and storage backend `local` despite R2 environment variables being present. This storage readiness mismatch must be investigated before any PostgreSQL traffic switch.
+- The `clipforge-tools-00109-wij` tag returned HTTP `200` for `/` and `/v3/ready`; `/v3/ready` reported database `ok`, Redis/worker unavailable, and storage backend `local` despite R2 environment variables being present. This was traced to readiness reporting using the legacy `STORAGE_BACKEND` variable instead of the actual V3 storage adapter.
+- Follow-up revision `clipforge-tools-pg-r2ready` is tagged `pg-candidate` at `0%` traffic and now reports `storage.backend=r2` and `configured_backend=r2` on `/v3/ready`. Production traffic remains `100%` on SQLite revision `clipforge-tools-00104-hwm`.
 - Traffic was restored to the preserved SQLite revision `clipforge-tools-00104-hwm` after the import blocker was found.
 - Cloud Run database persistence is still not production-safe: `/data/clipforge.db` is on a GCSFuse mount, and earlier SQLite WAL/SHM activity produced repeated `clipforge.db-shm` out-of-order write errors.
 - Offline integrity check of a copied `clipforge.db` returned `ok`, but that only proves the copied main database file was readable at audit time; it does not make GCSFuse-backed SQLite safe for writes.
@@ -106,7 +107,7 @@ This inspector:
 8. Review the production database cutover runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`
 9. Review the production cutover Go/No-Go decision: `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`
 10. Review the production PostgreSQL candidate attempt: `docs/clipforge-v3/PRODUCTION_POSTGRES_CANDIDATE.md`
-11. Investigate why the PostgreSQL candidate tag reports LocalStorage while R2 variables are present, and verify Redis/worker production readiness.
+11. Verify Redis/worker production readiness for the PostgreSQL candidate before any traffic switch.
 12. In a maintenance window, create a fresh consistent SQLite backup, import it into Cloud SQL PostgreSQL, validate a tagged PostgreSQL revision, and keep traffic at `0%` until all cutover gates pass.
 13. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
 
@@ -134,7 +135,7 @@ Automatic repeated tests are forbidden.
 - Private R2 video playback/download UI integration
 - Production Cloud SQL PostgreSQL cutover
 - Production Cloud Run switch to PostgreSQL
-- PostgreSQL candidate storage readiness mismatch: tag currently reports `local` storage although R2 variables are configured
+- PostgreSQL candidate Redis/worker readiness review
 - R2 token rotation after migration from plaintext Cloud Run env vars to Secret Manager
 - Batch real-product validation
 - Long-running Worker tests

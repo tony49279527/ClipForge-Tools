@@ -157,15 +157,46 @@ Not confirmed:
   - Storage check: reported `local` despite `V3_STORAGE_BACKEND=r2` and dual-bucket variables being present; investigate before any PostgreSQL traffic switch
 - Traffic remains `100%` on `clipforge-tools-00104-hwm`; `clipforge-tools-00109-wij` has only the `pg-candidate` tag and `0%` traffic.
 
+## R2 Readiness Follow-Up
+
+Date: 2026-06-18
+
+Root cause:
+
+- `clipforge_v3/services/readiness_service.py` correctly instantiated storage through `get_storage()`.
+- The readiness response then reported `os.getenv("STORAGE_BACKEND", "local")` instead of the actual adapter backend.
+- Cloud Run had `V3_STORAGE_BACKEND=r2` and no `STORAGE_BACKEND`, so `/v3/ready` showed `local` even though the V3 R2 configuration was present.
+
+Fix:
+
+- Commit `742b1de0bb13bee9b3912fcb2b0d23fea6121c9c` changed readiness to report `get_storage().backend` and include `configured_backend`.
+- Commit `b954fee9a089418c79dac98d4e7fbaced0e8e76d` added `.gcloudignore` so future Cloud Build contexts exclude local artifacts, databases, uploads, outputs, videos, and `.venv`.
+
+0% candidate validation:
+
+- New tagged revision: `clipforge-tools-pg-r2ready`
+- Tag: `pg-candidate`
+- Traffic: `0%`
+- Production traffic: still `100%` on SQLite revision `clipforge-tools-00104-hwm`
+- `GET /`: HTTP `200`
+- `GET /v3`: HTTP `200`
+- `GET /v3/ready`: HTTP `200`
+- Database check: `ok`
+- Storage check: `backend=r2`, `configured_backend=r2`
+- Redis and worker checks: unavailable, still requiring production Redis/worker readiness review
+- Recent revision logs: no startup failure and no detected Secret-like leakage
+
+This resolves the storage readiness mismatch. It does not authorize traffic cutover.
+
 ## Required Fix Before Next Attempt
 
 Single next task:
 
-Investigate why the PostgreSQL candidate tag reports `Storage backend active: local` even though `V3_STORAGE_BACKEND=r2` and dual-bucket variables are present, then run a no-write readiness pass on the tagged revision before considering any PostgreSQL traffic cutover.
+Verify Redis/worker production readiness for the PostgreSQL candidate and keep the candidate at `0%` traffic until a fresh maintenance-window snapshot/import and final cutover approval.
 
 Minimum scope:
 
-- Confirm whether the tag is using the expected R2 secret references and storage credentials.
-- Confirm `R2Storage` initializes without falling back to LocalStorage.
-- Keep `clipforge-tools-00109-wij` at `0%` traffic.
-- Do not route traffic to PostgreSQL until storage, Redis/worker, and maintenance/cutover gates are explicitly reviewed.
+- Confirm the candidate has the intended Redis/queue configuration.
+- Confirm workers cannot duplicate paid provider submissions after restart.
+- Keep `clipforge-tools-pg-r2ready` at `0%` traffic.
+- Do not route traffic to PostgreSQL until Redis/worker and maintenance/cutover gates are explicitly reviewed.

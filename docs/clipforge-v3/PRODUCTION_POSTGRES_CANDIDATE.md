@@ -188,11 +188,37 @@ Fix:
 
 This resolves the storage readiness mismatch. It does not authorize traffic cutover.
 
+## Redis And Worker Readiness Follow-Up
+
+Date: 2026-06-18
+
+Read-only checks found:
+
+- `REDIS_URL`: absent from the Cloud Run candidate environment
+- `RQ_REDIS_URL`: absent
+- `WORKER_CONCURRENCY`: absent
+- Google Cloud Memorystore Redis API: disabled for project `gen-lang-client-0817070175`
+- Cloud Run services in `us-central1`: no dedicated ClipForge worker service found
+- Candidate `/v3/ready`: Redis and worker checks still fail by attempting `localhost:6379`
+
+Current assessment:
+
+- This is a production cutover blocker.
+- The candidate web revision can serve read-only pages with PostgreSQL and R2, but background generation, queue status, and worker-driven provider recovery are not production-ready.
+- Do not enable real user writes or paid provider workflows on the PostgreSQL candidate until Redis and worker deployment are explicitly designed, provisioned, and validated.
+
+Required next decision:
+
+- Choose the production Redis backend and worker runtime. Options include managed Redis plus a dedicated worker service, or another explicitly approved queue/runtime design.
+- Configure `REDIS_URL` through Secret Manager or another approved secret mechanism.
+- Deploy workers separately from the web service.
+- Validate worker restart behavior against the existing idempotent `v3_generation_submissions` flow before allowing paid generation.
+
 ## Required Fix Before Next Attempt
 
 Single next task:
 
-Verify Redis/worker production readiness for the PostgreSQL candidate and keep the candidate at `0%` traffic until a fresh maintenance-window snapshot/import and final cutover approval.
+Decide and implement the production Redis/RQ worker architecture for the PostgreSQL candidate, then keep the candidate at `0%` traffic until a fresh maintenance-window snapshot/import and final cutover approval.
 
 Minimum scope:
 

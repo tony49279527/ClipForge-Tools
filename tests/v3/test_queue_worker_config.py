@@ -154,3 +154,9 @@ def test_worker_service_health_fails_when_worker_process_exits(monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_worker_name_includes_runtime_identifier(monkeypatch):
+    worker = importlib.reload(importlib.import_module("worker"))
+    monkeypatch.setenv("K_REVISION", "clipforge-tools-worker-00003-v6r")
+    assert worker.worker_name(1) == "clipforge-clipforge-tools-worker-00003-v6r-w1"

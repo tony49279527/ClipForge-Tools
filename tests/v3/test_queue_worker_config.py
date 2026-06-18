@@ -59,8 +59,9 @@ def test_redact_url_hides_password():
 
 
 class FakeRedis:
-    def __init__(self, *, workers=None):
+    def __init__(self, *, workers=None, ttls=None):
         self.workers = workers or {}
+        self.ttls = ttls or {}
 
     def ping(self):
         return True
@@ -72,6 +73,9 @@ class FakeRedis:
     def hgetall(self, key):
         return self.workers.get(key, {})
 
+    def ttl(self, key):
+        return self.ttls.get(key, -1)
+
 
 def test_readiness_reports_worker_healthy(monkeypatch):
     readiness = importlib.reload(importlib.import_module("clipforge_v3.services.readiness_service"))
@@ -79,7 +83,7 @@ def test_readiness_reports_worker_healthy(monkeypatch):
     monkeypatch.setenv("WORKER_REQUIRED", "true")
     monkeypatch.setenv("WORKER_HEARTBEAT_MAX_AGE_SECONDS", "120")
     monkeypatch.setenv("REDIS_URL", "redis://redis.internal:6379/0")
-    monkeypatch.setattr(readiness, "get_redis", lambda: FakeRedis(workers={"rq:worker:clipforge-w1": {"last_heartbeat": now}}))
+    monkeypatch.setattr(readiness, "get_redis", lambda: FakeRedis(workers={"rq:worker:clipforge-w1": {"last_heartbeat": now}}, ttls={"rq:worker:clipforge-w1": 300}))
     result = readiness._check_worker()
     assert result["ok"] is True
     assert result["registered_workers"] == 1
@@ -97,6 +101,25 @@ def test_readiness_fails_when_worker_heartbeat_is_stale(monkeypatch):
     assert result["ok"] is False
     assert result["registered_workers"] == 1
     assert result["healthy_workers"] == 0
+
+
+def test_readiness_accepts_live_worker_ttl_even_if_heartbeat_field_is_stale(monkeypatch):
+    readiness = importlib.reload(importlib.import_module("clipforge_v3.services.readiness_service"))
+    stale = (datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat()
+    monkeypatch.setenv("WORKER_REQUIRED", "true")
+    monkeypatch.setenv("WORKER_HEARTBEAT_MAX_AGE_SECONDS", "120")
+    monkeypatch.setenv("REDIS_URL", "redis://redis.internal:6379/0")
+    monkeypatch.setattr(
+        readiness,
+        "get_redis",
+        lambda: FakeRedis(
+            workers={"rq:worker:clipforge-w1": {"last_heartbeat": stale}},
+            ttls={"rq:worker:clipforge-w1": 300},
+        ),
+    )
+    result = readiness._check_worker()
+    assert result["ok"] is True
+    assert result["healthy_workers"] == 1
 
 
 def test_readiness_redis_failure_does_not_leak_password(monkeypatch):

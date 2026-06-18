@@ -102,6 +102,11 @@ def _check_worker() -> dict:
             data = redis.hgetall(key) or {}
             raw = data.get("last_heartbeat") or data.get(b"last_heartbeat") or data.get("birth")
             age = None
+            ttl = None
+            try:
+                ttl = redis.ttl(key)
+            except Exception:
+                ttl = None
             if raw:
                 try:
                     if isinstance(raw, bytes):
@@ -113,7 +118,7 @@ def _check_worker() -> dict:
                     heartbeat_ages.append(age)
                 except Exception:
                     age = None
-            if age is None or age <= max_age:
+            if (isinstance(ttl, int) and ttl > 0) or age is None or age <= max_age:
                 healthy.append(key)
         ok = bool(healthy) if required else True
         return {

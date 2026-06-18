@@ -14,7 +14,6 @@ import multiprocessing as mp
 
 from rq import Worker
 from task_queue import get_redis, QUEUE_NAME
-from clipforge_v3.services.queue_config import redact_url
 
 
 def run_worker_process(worker_index: int, burst: bool) -> None:
@@ -36,7 +35,8 @@ def main():
     redis_conn.ping()
 
     print(f"Starting ClipForge RQ Worker(s): {args.workers} processes, queue={QUEUE_NAME}")
-    print(f"   Redis: {redact_url(os.getenv('REDIS_URL') or os.getenv('RQ_REDIS_URL') or 'redis://localhost:6379/0')}")
+    redis_configured = bool(os.getenv("REDIS_URL") or os.getenv("RQ_REDIS_URL"))
+    print(f"   Redis: {'configured' if redis_configured else 'local development default'}")
     print(f"   Burst mode: {args.burst}")
     print()
 

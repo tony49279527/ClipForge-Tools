@@ -203,9 +203,14 @@ Read-only checks found:
 
 Current assessment:
 
-- This is a production cutover blocker.
-- The candidate web revision can serve read-only pages with PostgreSQL and R2, but background generation, queue status, and worker-driven provider recovery are not production-ready.
-- Do not enable real user writes or paid provider workflows on the PostgreSQL candidate until Redis and worker deployment are explicitly designed, provisioned, and validated.
+- This was a production cutover blocker and has been provisioned as a candidate.
+- Redis instance `clipforge-redis-prod` is `READY` in `us-central1`, Basic tier, `1GB`, private `default` VPC, no public access.
+- Secret Manager secret `clipforge-redis-url` was created for `REDIS_URL`; the value was not printed or committed.
+- Independent Cloud Run worker service `clipforge-tools-worker` was deployed with min/max instances `1`, concurrency `1`, no unauthenticated public access, Cloud SQL connection, Secret-backed `DATABASE_URL`, Secret-backed `REDIS_URL`, and R2 Secret references.
+- Web candidate revision `clipforge-tools-pg-redis2` is tagged `pg-candidate` with `0%` traffic and uses the Redis Secret.
+- `/v3/ready` on the tag reports database `ok`, Redis `ok`, storage `r2`, and worker `ok`.
+- Production traffic remains `100%` on SQLite revision `clipforge-tools-00104-hwm`.
+- Do not enable real user writes or paid provider workflows on the PostgreSQL candidate until non-paid queue smoke and worker restart/idempotency validation pass.
 
 Required next decision:
 
@@ -218,7 +223,7 @@ Required next decision:
 
 Single next task:
 
-Decide and implement the production Redis/RQ worker architecture for the PostgreSQL candidate, then keep the candidate at `0%` traffic until a fresh maintenance-window snapshot/import and final cutover approval.
+Run non-paid queue smoke and worker restart/idempotency validation, then keep the candidate at `0%` traffic until a fresh maintenance-window snapshot/import and final cutover approval.
 
 Minimum scope:
 

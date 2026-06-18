@@ -217,7 +217,7 @@ This is the correct rollback boundary for avoiding split-brain data loss.
 - Final candidate SQLite snapshot has been created and validated.
 - Production data has been exported, imported into the candidate Cloud SQL database, and validated against the candidate snapshot; a fresh maintenance-window snapshot is still required before real cutover.
 - Tagged `0%` PostgreSQL Cloud Run revision `clipforge-tools-00109-wij` has been deployed and checked with `GET /` and `GET /v3/ready`.
-- Candidate `/v3/ready` initially reported database `ok`, but also reported Redis/worker unavailable and storage backend `local` despite `V3_STORAGE_BACKEND=r2` and dual-bucket variables being present. The storage mismatch was resolved in follow-up revision `clipforge-tools-pg-r2ready`, which reports `backend=r2` and remains at `0%` traffic. Redis/worker readiness is still unresolved: `REDIS_URL` is absent, Memorystore Redis API is disabled, and no dedicated worker Cloud Run service was found.
+- Candidate `/v3/ready` initially reported database `ok`, but also reported Redis/worker unavailable and storage backend `local` despite `V3_STORAGE_BACKEND=r2` and dual-bucket variables being present. The storage mismatch was resolved in follow-up revision `clipforge-tools-pg-r2ready`. Redis/worker candidate provisioning is now complete in `clipforge-tools-pg-redis2`: Redis `ok`, worker `ok`, storage `r2`, database `ok`, and traffic remains `0%`.
 - Production traffic has been restored to the preserved SQLite revision, so maintenance mode is not currently serving normal traffic.
 - SQLite on GCSFuse remains unsafe for production writes until cutover completes.
 
@@ -256,8 +256,8 @@ Conclusion: `NO-GO`
 Meaning:
 
 - The repository tooling and current Cloud Run read-only PostgreSQL/R2 tag are good enough to proceed to the next preparation task.
-- Immediate production database cutover is blocked by missing Redis/worker production readiness.
-- The cutover must not proceed until Redis/worker architecture is implemented and all failed preflight checks are intentionally satisfied during a fresh maintenance window.
+- Immediate production database cutover is still blocked until non-paid queue smoke and worker restart/idempotency validation pass.
+- The cutover must not proceed until queue validation passes and all failed preflight checks are intentionally satisfied during a fresh maintenance window.
 
 Blocking conditions for formal cutover:
 

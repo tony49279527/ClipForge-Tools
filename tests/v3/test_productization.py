@@ -58,6 +58,24 @@ def test_health_ready_do_not_leak_secrets(client, monkeypatch):
     assert "api_key_configured" in ready.text
 
 
+def test_ready_reports_actual_v3_storage_backend(client, monkeypatch):
+    monkeypatch.setenv("V3_STORAGE_BACKEND", "r2")
+    monkeypatch.setenv("R2_ENDPOINT_URL", "https://acct.r2.cloudflarestorage.com")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "access")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "do-not-print")
+    monkeypatch.setenv("R2_PUBLIC_BUCKET_NAME", "clipforge-public-assets")
+    monkeypatch.setenv("R2_PRIVATE_BUCKET_NAME", "clipforge-private-videos")
+    monkeypatch.setenv("R2_PUBLIC_BASE_URL", "https://pub.example.r2.dev")
+    monkeypatch.delenv("STORAGE_BACKEND", raising=False)
+    ready = client.get("/v3/ready")
+    assert ready.status_code == 200
+    storage = ready.json()["checks"]["storage"]
+    assert storage["ok"] is True
+    assert storage["backend"] == "r2"
+    assert storage["configured_backend"] == "r2"
+    assert "do-not-print" not in ready.text
+
+
 def test_storage_rejects_unsupported_upload(client, buffing_wheel_payload, tmp_path):
     project_id = _create_project(client, buffing_wheel_payload)
     bad_file = tmp_path / "malware.exe"

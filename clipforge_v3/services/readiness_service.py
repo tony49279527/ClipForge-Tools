@@ -49,13 +49,19 @@ def _check_provider() -> dict:
 
 def _check_storage() -> dict:
     try:
-        backend = os.getenv("STORAGE_BACKEND", "local")
-        get_storage()
+        storage = get_storage()
+        backend = getattr(storage, "backend", "unknown")
         root = Path(os.getenv("UPLOADS_DIR", "uploads")).resolve()
         root.mkdir(parents=True, exist_ok=True)
-        return {"ok": True, "message": f"Storage backend active: {backend}.", "backend": backend}
+        configured_backend = os.getenv("V3_STORAGE_BACKEND", os.getenv("STORAGE_BACKEND", "local")).strip().lower()
+        return {
+            "ok": True,
+            "message": f"Storage backend active: {backend}.",
+            "backend": backend,
+            "configured_backend": configured_backend,
+        }
     except Exception as exc:
-        return {"ok": False, "message": f"Storage check failed. Next step: set STORAGE_BACKEND=local. {exc}"}
+        return {"ok": False, "message": f"Storage check failed. Next step: verify V3_STORAGE_BACKEND or set V3_STORAGE_BACKEND=local. {exc}"}
 
 
 def _check_worker() -> dict:
@@ -79,4 +85,3 @@ def readiness() -> dict:
     required = {"database", "ffmpeg", "provider", "storage"}
     ok = all(checks[name]["ok"] for name in required)
     return {"ok": ok, "checks": checks}
-

@@ -26,7 +26,7 @@ def run_worker_process(worker_index: int, burst: bool) -> None:
     """Run one real RQ worker process."""
     redis_conn = get_redis()
     worker = Worker([QUEUE_NAME], connection=redis_conn, name=worker_name(worker_index))
-    worker.work(burst=burst)
+    worker.work(burst=burst, with_scheduler=True)
 
 
 def main():

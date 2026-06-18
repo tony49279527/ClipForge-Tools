@@ -162,6 +162,27 @@ def test_worker_name_includes_runtime_identifier(monkeypatch):
     assert worker.worker_name(1) == "clipforge-clipforge-tools-worker-00003-v6r-w1"
 
 
+def test_worker_process_enables_rq_scheduler(monkeypatch):
+    worker = importlib.reload(importlib.import_module("worker"))
+    calls = {}
+
+    class FakeWorker:
+        def __init__(self, queues, connection, name):
+            calls["queues"] = queues
+            calls["connection"] = connection
+            calls["name"] = name
+
+        def work(self, **kwargs):
+            calls["work_kwargs"] = kwargs
+
+    monkeypatch.setattr(worker, "get_redis", lambda: object())
+    monkeypatch.setattr(worker, "Worker", FakeWorker)
+    monkeypatch.setenv("K_REVISION", "rev")
+    worker.run_worker_process(1, burst=True)
+    assert calls["work_kwargs"]["burst"] is True
+    assert calls["work_kwargs"]["with_scheduler"] is True
+
+
 def test_queue_smoke_wrapper_has_no_project_side_effect():
     task_queue = importlib.reload(importlib.import_module("task_queue"))
     assert task_queue.run_queue_smoke_wrapper({"echo": "hello"}) == {"ok": True, "echo": "hello", "queue": "clipforge"}

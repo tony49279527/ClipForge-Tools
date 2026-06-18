@@ -8,6 +8,7 @@ from db import get_conn
 from task_queue import get_redis
 
 from clipforge_v3.providers.config import SEEDANCE_BASE_URL, SEEDANCE_MODEL
+from clipforge_v3.services.queue_config import RedisConfigurationError, resolve_redis_settings
 from clipforge_v3.services.storage_service import get_storage
 
 
@@ -23,10 +24,32 @@ def _check_database() -> dict:
 
 def _check_redis() -> dict:
     try:
+        settings = resolve_redis_settings()
+    except RedisConfigurationError as exc:
+        return {
+            "ok": False,
+            "configured": False,
+            "reachable": False,
+            "queue_name": os.getenv("RQ_QUEUE_NAME", "clipforge"),
+            "message": f"Redis configuration failed. Next step: configure REDIS_URL through Secret Manager. {exc}",
+        }
+    try:
         get_redis().ping()
-        return {"ok": True, "message": "Redis connection ok."}
+        return {
+            "ok": True,
+            "configured": True,
+            "reachable": True,
+            "queue_name": settings.queue_name,
+            "message": "Redis connection ok.",
+        }
     except Exception as exc:
-        return {"ok": False, "message": f"Redis unavailable. Next step: start redis-server or set REDIS_URL. {exc}"}
+        return {
+            "ok": False,
+            "configured": True,
+            "reachable": False,
+            "queue_name": settings.queue_name,
+            "message": f"Redis unavailable. Next step: verify REDIS_URL and network access. {exc}",
+        }
 
 
 def _check_ffmpeg() -> dict:
@@ -65,12 +88,51 @@ def _check_storage() -> dict:
 
 
 def _check_worker() -> dict:
+    max_age = int(os.getenv("WORKER_HEARTBEAT_MAX_AGE_SECONDS", "120"))
+    required = os.getenv("WORKER_REQUIRED", "false").strip().lower() in {"1", "true", "yes", "on"} or os.getenv("REDIS_REQUIRED", "").strip().lower() in {"1", "true", "yes", "on"}
     try:
         redis = get_redis()
         workers = redis.keys("rq:worker:*")
-        return {"ok": True, "message": f"Worker records visible: {len(workers)}.", "worker_count": len(workers)}
+        healthy = []
+        heartbeat_ages: list[float] = []
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        for key in workers:
+            data = redis.hgetall(key) or {}
+            raw = data.get("last_heartbeat") or data.get(b"last_heartbeat") or data.get("birth")
+            age = None
+            if raw:
+                try:
+                    if isinstance(raw, bytes):
+                        raw = raw.decode("utf-8")
+                    heartbeat = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                    if heartbeat.tzinfo is None:
+                        heartbeat = heartbeat.replace(tzinfo=timezone.utc)
+                    age = max((now - heartbeat).total_seconds(), 0)
+                    heartbeat_ages.append(age)
+                except Exception:
+                    age = None
+            if age is None or age <= max_age:
+                healthy.append(key)
+        ok = bool(healthy) if required else True
+        return {
+            "ok": ok,
+            "required": required,
+            "registered_workers": len(workers),
+            "healthy_workers": len(healthy),
+            "heartbeat_age": min(heartbeat_ages) if heartbeat_ages else None,
+            "message": f"Worker records visible: {len(workers)}; healthy: {len(healthy)}.",
+        }
     except Exception as exc:
-        return {"ok": False, "message": f"Worker check failed. Next step: run python worker.py. {exc}"}
+        return {
+            "ok": False,
+            "required": required,
+            "registered_workers": 0,
+            "healthy_workers": 0,
+            "heartbeat_age": None,
+            "message": f"Worker check failed. Next step: run the RQ worker service. {exc}",
+        }
 
 
 def readiness() -> dict:

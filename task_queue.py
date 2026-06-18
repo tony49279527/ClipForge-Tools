@@ -17,13 +17,13 @@ from rq import Queue, Retry
 from rq.job import Job as RQJob
 
 from clipforge_v3.services.maintenance_service import assert_writes_allowed
+from clipforge_v3.services.queue_config import resolve_redis_settings
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-QUEUE_NAME = os.getenv("RQ_QUEUE_NAME", "clipforge")
+QUEUE_NAME = os.getenv("RQ_QUEUE_NAME", "clipforge").strip() or "clipforge"
 
 # Concurrency limits
 MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "3"))
@@ -70,14 +70,16 @@ def _enqueue_with_reusable_job_id(*, job_id: str, func: str, args: List[Any], jo
 def get_redis() -> Redis:
     global _redis_client
     if _redis_client is None:
-        _redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
+        settings = resolve_redis_settings()
+        _redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
     return _redis_client
 
 
 def get_queue() -> Queue:
     global _queue
     if _queue is None:
-        _queue = Queue(QUEUE_NAME, connection=get_redis(), default_timeout=3600)
+        settings = resolve_redis_settings()
+        _queue = Queue(settings.queue_name, connection=get_redis(), default_timeout=3600)
     return _queue
 
 

@@ -222,6 +222,21 @@ def run_v3_generation_wrapper(submission_id: int) -> Dict[str, Any]:
     return run_generation_submission_task(submission_id)
 
 
+def run_queue_smoke_wrapper(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """No-side-effect queue smoke task for production candidate validation."""
+    return {"ok": True, "echo": payload.get("echo"), "queue": QUEUE_NAME}
+
+
+def run_queue_retry_smoke_wrapper(redis_key: str) -> Dict[str, Any]:
+    """Fail once, then succeed, using only a temporary Redis key."""
+    redis_conn = get_redis()
+    attempts = int(redis_conn.incr(redis_key))
+    if attempts == 1:
+        raise RuntimeError("intentional queue smoke retry")
+    redis_conn.delete(redis_key)
+    return {"ok": True, "attempts": attempts}
+
+
 # ---------------------------------------------------------------------------
 # Job status helpers (for polling from the web app)
 # ---------------------------------------------------------------------------

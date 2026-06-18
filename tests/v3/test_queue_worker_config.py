@@ -160,3 +160,8 @@ def test_worker_name_includes_runtime_identifier(monkeypatch):
     worker = importlib.reload(importlib.import_module("worker"))
     monkeypatch.setenv("K_REVISION", "clipforge-tools-worker-00003-v6r")
     assert worker.worker_name(1) == "clipforge-clipforge-tools-worker-00003-v6r-w1"
+
+
+def test_queue_smoke_wrapper_has_no_project_side_effect():
+    task_queue = importlib.reload(importlib.import_module("task_queue"))
+    assert task_queue.run_queue_smoke_wrapper({"echo": "hello"}) == {"ok": True, "echo": "hello", "queue": "clipforge"}

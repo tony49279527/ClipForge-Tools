@@ -12,7 +12,7 @@ Resolved in state-machine hardening commit:
 2. Provider success persistence is replay-safe. A generation submission can own only one Take through `v3_takes.generation_submission_id`, and video generation cost can be written only once through `v3_usage_events.event_key`.
 3. New real-provider submissions run `_ensure_budget()` before `reserve_generation_submission()`, and old `reserved` rows without `budget_approved_at` cannot be submitted automatically.
 
-Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. Real R2 public/private smoke validation has passed without Ark generation. A later Cloud Run database audit found that `/data/clipforge.db` is currently on a GCSFuse mount with SQLite WAL/SHM out-of-order write errors. A `DATABASE_URL` SQLite/PostgreSQL backend foundation, PostgreSQL integration workflow, and migration rehearsal tools now exist, but Cloud Run has not been switched to PostgreSQL and production data has not been migrated.
+Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. Real R2 public/private smoke validation has passed without Ark generation. A later Cloud Run database audit found that `/data/clipforge.db` was on a GCSFuse mount with SQLite WAL/SHM out-of-order write errors. The follow-up PostgreSQL cutover has now moved production traffic to Cloud SQL PostgreSQL; see `docs/clipforge-v3/PRODUCTION_POSTGRES_CUTOVER_RESULT.md`.
 
 ## 2. Current Repository Baseline
 

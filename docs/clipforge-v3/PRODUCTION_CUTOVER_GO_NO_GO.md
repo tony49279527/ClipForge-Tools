@@ -11,7 +11,9 @@
 
 This review did not create Cloud SQL resources, modify Cloud Run, enable maintenance mode, set production `DATABASE_URL`, migrate data, call Ark/Seedance, or run paid generation.
 
-Follow-up on 2026-06-17: a production-candidate Cloud SQL instance was created and a candidate SQLite snapshot was validated. The first formal PostgreSQL import failed because the current PostgreSQL Legacy schema was missing historical production `jobs` columns such as `creative_prompt`; that schema parity blocker was fixed in `e78713046c53872d2f49d1bff887f7157ce9f3af`. The existing candidate snapshot was then imported into Cloud SQL and migration validation plus schema compare passed. A tagged 0% PostgreSQL candidate revision `clipforge-tools-00109-wij` also started and served read-only GET checks. Traffic remains on the preserved SQLite revision. The current decision is still `NO CUTOVER` until storage readiness, Redis/worker readiness, fresh maintenance-window backup/import, and final tagged-revision checks pass.
+Follow-up on 2026-06-17: a production-candidate Cloud SQL instance was created and a candidate SQLite snapshot was validated. The first formal PostgreSQL import failed because the current PostgreSQL Legacy schema was missing historical production `jobs` columns such as `creative_prompt`; that schema parity blocker was fixed in `e78713046c53872d2f49d1bff887f7157ce9f3af`. The existing candidate snapshot was then imported into Cloud SQL and migration validation plus schema compare passed. A tagged 0% PostgreSQL candidate revision `clipforge-tools-00109-wij` also started and served read-only GET checks.
+
+Follow-up on 2026-06-19: final production cutover was executed after operator confirmation. A fresh SQLite snapshot was created under write freeze, imported into Cloud SQL PostgreSQL, validated, and production traffic was moved to PostgreSQL revision `clipforge-tools-00115-kay`. See `docs/clipforge-v3/PRODUCTION_POSTGRES_CUTOVER_RESULT.md`.
 
 ## 2. Current Cloud Run State
 
@@ -251,15 +253,15 @@ A real cutover window must include:
 
 ## 13. Go / Conditional Go / No-Go Conclusion
 
-Conclusion: `CONDITIONAL GO`
+Conclusion: `COMPLETED AFTER CONDITIONAL GO`
 
 Meaning:
 
-- The repository tooling and current Cloud Run read-only PostgreSQL/R2/Redis/worker tag are good enough to proceed to the final cutover preparation task.
-- Immediate production database cutover is still blocked until a fresh maintenance-window SQLite snapshot is imported and validated.
-- The cutover must not proceed until all failed preflight checks are intentionally satisfied during that fresh maintenance window.
+- This review originally concluded `CONDITIONAL GO`.
+- The required fresh maintenance-window snapshot, PostgreSQL import, validation, and traffic switch were completed later.
+- Current result is recorded in `docs/clipforge-v3/PRODUCTION_POSTGRES_CUTOVER_RESULT.md`.
 
-Blocking conditions for formal cutover:
+Historical blocking conditions for formal cutover:
 
 - Enable maintenance mode.
 - Create and verify the final Cloud SQL PostgreSQL 16 instance in `us-central1`.

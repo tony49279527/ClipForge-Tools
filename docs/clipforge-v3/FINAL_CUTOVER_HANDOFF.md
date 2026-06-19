@@ -2,6 +2,8 @@
 
 Date: 2026-06-18
 
+Status update: the final cutover described here was executed on 2026-06-19. Production traffic is now `100%` on PostgreSQL-backed revision `clipforge-tools-00115-kay`, maintenance mode is disabled, and the result is recorded in `docs/clipforge-v3/PRODUCTION_POSTGRES_CUTOVER_RESULT.md`.
+
 This handoff is for the next short maintenance window. It does not authorize an automatic traffic switch. Do not run the final cutover unless the operator explicitly confirms it in the terminal.
 
 ## Current Online State

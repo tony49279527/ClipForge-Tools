@@ -11,6 +11,8 @@ This operations pass created a production-candidate Cloud SQL PostgreSQL instanc
 
 No Ark or Seedance task was created. No PostgreSQL Cloud Run revision received production traffic.
 
+Follow-up: final production cutover was completed on 2026-06-19. See `docs/clipforge-v3/PRODUCTION_POSTGRES_CUTOVER_RESULT.md` for the fresh snapshot, import, validation, and traffic switch result.
+
 ## Cloud SQL Candidate
 
 - Project: `gen-lang-client-0817070175`
@@ -139,12 +141,12 @@ Not confirmed:
 - Worker/Redis readiness in the PostgreSQL candidate revision.
 - R2 readiness in the PostgreSQL candidate revision: environment variables are present, but `/v3/ready` reported `Storage backend active: local` on the tag and needs a focused follow-up before traffic cutover.
 
-## Current Runtime State After Attempt
+## Historical Runtime State After Candidate Attempt
 
-- Production traffic remains on SQLite revision `clipforge-tools-00104-hwm`.
-- The production traffic-serving revision does not have `DATABASE_URL`.
-- PostgreSQL candidate instance remains created for the next attempt.
-- No production traffic was routed to PostgreSQL.
+- At this candidate-attempt point, production traffic remained on SQLite revision `clipforge-tools-00104-hwm`.
+- At this candidate-attempt point, the production traffic-serving revision did not have `DATABASE_URL`.
+- PostgreSQL candidate instance remained created for the next attempt.
+- No production traffic was routed to PostgreSQL during this candidate attempt.
 - No Ark or Seedance request was made.
 - A first 0% PostgreSQL candidate revision `clipforge-tools-00108-sir` failed startup because the Secret Manager `DATABASE_URL` contained a malformed Cloud SQL Unix socket host. No production traffic was routed to this revision.
 - Secret `clipforge-database-url` was updated with a corrected SQLAlchemy/psycopg Cloud SQL socket URL in version `2`; the value was not printed or committed.
@@ -155,7 +157,7 @@ Not confirmed:
   - Database check: `ok`
   - Redis and worker checks: unavailable, expected until Redis/worker production configuration is supplied
   - Storage check: reported `local` despite `V3_STORAGE_BACKEND=r2` and dual-bucket variables being present; investigate before any PostgreSQL traffic switch
-- Traffic remains `100%` on `clipforge-tools-00104-hwm`; `clipforge-tools-00109-wij` has only the `pg-candidate` tag and `0%` traffic.
+- During this candidate attempt, traffic remained `100%` on `clipforge-tools-00104-hwm`; `clipforge-tools-00109-wij` had only the `pg-candidate` tag and `0%` traffic.
 
 ## R2 Readiness Follow-Up
 
@@ -177,7 +179,7 @@ Fix:
 - New tagged revision: `clipforge-tools-pg-r2ready`
 - Tag: `pg-candidate`
 - Traffic: `0%`
-- Production traffic: still `100%` on SQLite revision `clipforge-tools-00104-hwm`
+- Production traffic during this follow-up: still `100%` on SQLite revision `clipforge-tools-00104-hwm`
 - `GET /`: HTTP `200`
 - `GET /v3`: HTTP `200`
 - `GET /v3/ready`: HTTP `200`
@@ -210,8 +212,8 @@ Current assessment:
 - Web candidate revision `clipforge-tools-pg-worker-ready` is tagged `pg-candidate` with `0%` traffic and uses the Redis Secret.
 - `/v3/ready` on the tag reports database `ok`, Redis `ok`, storage `r2`, and worker `ok`.
 - Non-paid queue smoke passed through Cloud Run Job `clipforge-queue-smoke`.
-- Production traffic remains `100%` on SQLite revision `clipforge-tools-00104-hwm`.
-- Do not enable real user writes or paid provider workflows on the PostgreSQL candidate until the final fresh maintenance-window snapshot/import and human cutover approval are complete.
+- Production traffic during this readiness follow-up remained `100%` on SQLite revision `clipforge-tools-00104-hwm`.
+- This readiness follow-up did not enable real user writes or paid provider workflows on the PostgreSQL candidate. Final cutover was completed later and is recorded in `docs/clipforge-v3/PRODUCTION_POSTGRES_CUTOVER_RESULT.md`.
 
 Required next decision:
 

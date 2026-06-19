@@ -7,7 +7,7 @@
 - It is designed for mock flow only
 - Current 0% traffic demo tag URL: `https://v3-ui-demo---clipforge-tools-znaw4q4ldq-uc.a.run.app/v3`
 - Demo revision: `clipforge-tools-00115-kay`
-- Production traffic remains on the SQLite production revision; this demo tag does not receive default traffic.
+- After the PostgreSQL cutover, production traffic is on revision `clipforge-tools-00115-kay`, which also retains this demo tag.
 
 ## What The Page Shows
 

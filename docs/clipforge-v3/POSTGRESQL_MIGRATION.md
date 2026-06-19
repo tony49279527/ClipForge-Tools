@@ -223,11 +223,11 @@ Operational runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`.
 ## 15. Known Incomplete Items
 
 - No production data has been migrated.
-- Cloud Run still has not been switched to PostgreSQL.
+- Cloud Run production has now been switched to PostgreSQL; see `docs/clipforge-v3/PRODUCTION_POSTGRES_CUTOVER_RESULT.md`.
 - The Cloud SQL test instance used for rehearsal has been deleted.
 - Real PostgreSQL integration is only run when `POSTGRES_TEST_DATABASE_URL` points to a disposable test database.
 - Repositories still use a compatibility cursor API and should eventually move to explicit SQLAlchemy Core statements.
 
 ## 16. Single Next Task
 
-In a maintenance window, create a consistent SQLite backup, migrate to a final Cloud SQL PostgreSQL instance, and switch a new Cloud Run revision to Secret Manager-backed `DATABASE_URL`; if validation fails, route traffic back to the SQLite revision.
+Post-cutover, monitor Cloud Run, Cloud SQL PostgreSQL, Redis, worker, and R2 behavior under real user writes. Keep the final SQLite backup preserved for audit and emergency reference.

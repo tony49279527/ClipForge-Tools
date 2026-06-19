@@ -203,6 +203,7 @@ Redis and worker architecture: `docs/clipforge-v3/REDIS_WORKER_ARCHITECTURE.md`
 Worker restart idempotency: `docs/clipforge-v3/WORKER_RESTART_IDEMPOTENCY.md`
 Production cutover Go/No-Go review: `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`
 Production PostgreSQL candidate attempt: `docs/clipforge-v3/PRODUCTION_POSTGRES_CANDIDATE.md`
+Production PostgreSQL cutover result: `docs/clipforge-v3/PRODUCTION_POSTGRES_CUTOVER_RESULT.md`
 
 - `docs/clipforge-v3/README.md`
 - `docs/clipforge-v3/user-guide-zh.md`
@@ -279,7 +280,7 @@ This repo is prepared for Cloud Run:
 Important Cloud Run limits and recommendations:
 
 1. Cloud Run request timeout defaults to 300 seconds. For this app, set the Cloud Run timeout to `3600` seconds.
-2. Cloud Run local filesystem is temporary. `outputs/`, `uploads/`, and `data/` are acceptable for V1 testing only. Production should move to object storage and Cloud SQL/PostgreSQL. Do not run production writes against SQLite on a GCSFuse mount.
+2. Cloud Run local filesystem is temporary. `outputs/`, `uploads/`, and `data/` are acceptable for local/V1 testing only. V3 production now uses R2 object storage and Cloud SQL PostgreSQL; do not reintroduce production writes against SQLite on a GCSFuse mount.
 3. Set concurrency to `1` for the web service because Seedance generation and FFmpeg stitching are heavy tasks.
 4. Recommended resources: memory `2GiB`, CPU `2`.
 5. FFmpeg is already installed in the Dockerfile.

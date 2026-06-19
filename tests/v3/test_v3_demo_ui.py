@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from clipforge_v3.router import DEMO_PRODUCT
 from clipforge_v3.providers import seedance_ark
 from clipforge_v3.services import generation_service
 
@@ -96,6 +97,49 @@ def test_v3_demo_flow_creates_mock_take_without_ark(client, db_conn, monkeypatch
     ).fetchone()
     assert usage["provider"] == "mock"
     assert float(usage["estimated_cost"]) == 0
+
+
+def test_v3_demo_builtin_product_prompt_can_submit_mock_take(client, db_conn, monkeypatch):
+    monkeypatch.setenv("V3_VIDEO_PROVIDER", "mock")
+    monkeypatch.setenv("V3_REAL_API_ENABLED", "false")
+
+    class GuardProvider(seedance_ark.ArkSeedanceProvider):
+        def submit_task(self, payload):
+            raise AssertionError("built-in mock demo flow must not call Ark submit_task")
+
+    monkeypatch.setattr(seedance_ark, "get_provider", lambda: GuardProvider())
+    monkeypatch.setattr(generation_service, "get_provider", lambda: GuardProvider())
+
+    create_response = client.post("/v3/demo/projects", data={"use_demo_product": "true"}, follow_redirects=False)
+    project_id = _extract_project_id(create_response.headers["location"])
+    client.post(
+        f"/v3/demo/projects/{project_id}/product-info",
+        data={
+            "source_description": DEMO_PRODUCT["source_description"],
+            "dimensions_input": DEMO_PRODUCT["dimensions_input"],
+            "materials_input": DEMO_PRODUCT["materials_input"],
+            "working_surface_input": DEMO_PRODUCT["working_surface_input"],
+            "parts_summary": DEMO_PRODUCT["source_description"],
+            "target_marketplace": DEMO_PRODUCT["target_market"],
+            "video_style": "clean Amazon demo",
+            "confirm_truth": "true",
+        },
+        follow_redirects=False,
+    )
+    client.post(f"/v3/demo/projects/{project_id}/assets/sample", follow_redirects=False)
+    client.post(f"/v3/demo/projects/{project_id}/prompt", follow_redirects=False)
+
+    prompt = db_conn.execute(
+        "SELECT allow_submit, validation_result_json FROM v3_prompt_versions ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert prompt is not None
+    assert prompt["allow_submit"] == 1
+
+    generate_response = client.post(f"/v3/demo/projects/{project_id}/generate", follow_redirects=False)
+    assert generate_response.status_code == 303
+    page = client.get(f"/v3?project_id={project_id}")
+    assert "Latest mock result" in page.text
+    assert "Provider:</strong> mock" in page.text
 
 
 def test_v3_demo_take_preview_route_serves_mock_video(client, db_conn, monkeypatch):

@@ -136,8 +136,12 @@ def detect_conflicts(inp: CompilerInput, text: str) -> list[PromptLintIssue]:
     if inp.mode == "I2V" and len(str(inp.product_truth.get("product_truth_json", {}))) > 2500:
         issues.append(PromptLintIssue(severity="warning", code="I2V_OVER_DESCRIPTION", message="I2V may be over-describing static product facts.", zh="I2V 可能过度描述静态产品。", en="I2V may be over-describing static product facts.", fix="Keep identity in references and describe only motion/change."))
     normalized = text.lower()
-    normalized = re.sub(r"forbidden materials:\s*\[[^\]]*\]", " ", normalized)
-    normalized = re.sub(r"(do not change to|must not become|must not use|avoid|exclude|forbidden)\s+[^.;]+", " ", normalized)
+    normalized = re.sub(r"forbidden materials\s*:\s*[^.;]+", " ", normalized)
+    normalized = re.sub(
+        r"(do not change to|do not turn into|must not become|must not use|avoid|exclude|forbidden)\s+[^.;]+",
+        " ",
+        normalized,
+    )
     forbidden_materials = inp.product_truth["product_truth_json"]["materials"]["forbidden"]
     for material in forbidden_materials:
         if re.search(rf"\b{re.escape(material.lower())}\b", normalized):

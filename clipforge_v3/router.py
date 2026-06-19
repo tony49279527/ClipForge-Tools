@@ -96,8 +96,9 @@ def _writes_enabled() -> bool:
 
 
 def _database_backend_label() -> str:
-    if DB_URL:
-        lowered = DB_URL.lower()
+    configured_url = os.getenv("DATABASE_URL", "").strip() or os.getenv("DB_URL", DB_URL).strip()
+    if configured_url:
+        lowered = configured_url.lower()
         if "postgres" in lowered:
             return "PostgreSQL"
         if lowered.startswith("sqlite"):

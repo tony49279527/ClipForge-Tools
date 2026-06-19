@@ -21,6 +21,16 @@ def test_v3_demo_homepage_shows_guided_mock_flow(client):
     assert "Step 5 · Result / Take" in response.text
 
 
+def test_v3_demo_homepage_uses_database_url_for_backend_label(client, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:secret@example.internal/clipforge")
+
+    response = client.get("/v3")
+
+    assert response.status_code == 200
+    assert "Database: PostgreSQL" in response.text
+    assert "secret" not in response.text
+
+
 def test_v3_demo_flow_creates_mock_take_without_ark(client, db_conn, monkeypatch):
     monkeypatch.setenv("V3_VIDEO_PROVIDER", "mock")
     monkeypatch.setenv("V3_REAL_API_ENABLED", "false")

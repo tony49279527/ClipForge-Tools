@@ -26,6 +26,9 @@
 - Product image uploads can store `storage_backend`, `object_key`, `content_type`, `size_bytes`, and a stable HTTPS `access_url`.
 - Generated provider videos can be uploaded to R2 after download; Take rows can store `storage_backend`, `object_key`, `content_type`, and `size_bytes`.
 - R2 tests use mocked S3/R2 clients only. No real R2 validation has been executed.
+- Guided V3 UI demo flow is now available on `/v3`.
+- The guided demo supports project creation, product info editing, demo image selection or image upload, mock prompt generation, mock take generation, and inline result preview.
+- The guided demo is explicitly mock-only, does not call Ark / Seedance, and keeps demo take cost at `0`.
 
 ## Verified Commands
 
@@ -42,6 +45,7 @@ Current recorded results:
 - V3 after download recovery hardening: `101 passed`
 - Real Provider Alpha: `37 passed`
 - Object storage targeted tests: `11 passed`
+- Guided V3 demo UI tests: `3 passed`
 - Legacy routes: `3 passed`
 
 ## Safe Payload Inspection
@@ -64,6 +68,7 @@ This inspector:
 3. Use a dedicated test Bucket for one real R2 upload, read, and delete validation after explicit authorization.
 4. Add long-running worker soak tests.
 5. Do not deploy production before object storage is complete.
+6. Gather operator click feedback from the `/v3` guided demo page before doing a broader UI polish pass.
 
 ## Real Paid Test Protection
 

@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageDraw, UnidentifiedImageError
 
 from clipforge_v3.repositories import asset_repository
 from clipforge_v3.schemas.assets import AssetAuditReport, AssetAuditWarning, V3AssetRecord
-from clipforge_v3.services.storage_service import ALLOWED_IMAGE_MIME
+from clipforge_v3.services.storage_service import ALLOWED_IMAGE_MIME, UPLOADS_DIR, get_storage
 
 
 KEY_ANGLE_ROLES = {"product_identity", "product_geometry", "installation", "material_detail"}
@@ -182,6 +182,88 @@ def replace_asset(
         size_bytes=size_bytes,
     )
     asset_repository.replace_asset(old_asset_id, created["id"])
+    return created
+
+
+def create_demo_placeholder_asset(
+    *,
+    project_id: int,
+    primary_role: str = "product_identity",
+    secondary_role: str | None = None,
+    must_transfer: list[str] | None = None,
+    must_not_transfer: list[str] | None = None,
+    applies_to_shots: list[str] | None = None,
+    is_identity_anchor: bool = True,
+    user_approved: bool = True,
+) -> dict:
+    existing_assets = list_assets(project_id)
+    for asset in existing_assets:
+        if (
+            asset["primary_role"] == primary_role
+            and asset.get("metadata_json", {}).get("demo_placeholder")
+            and not asset.get("deleted_at")
+        ):
+            return asset
+
+    must_transfer = must_transfer or [
+        "overall wheel geometry",
+        "1/2-inch center hole",
+        "concentric stitched rings",
+        "natural off-white cotton",
+    ]
+    must_not_transfer = must_not_transfer or ["background", "camera angle", "text overlay"]
+    applies_to_shots = applies_to_shots or ["S01", "S02", "S03"]
+
+    demo_dir = (UPLOADS_DIR / "v3" / str(project_id) / "demo").resolve()
+    demo_dir.mkdir(parents=True, exist_ok=True)
+    image_path = demo_dir / f"{primary_role}_buffing_wheel_demo.png"
+
+    image = Image.new("RGB", (1600, 1600), color=(247, 241, 228))
+    draw = ImageDraw.Draw(image)
+    center = 800
+    palette = {
+        "cotton": (230, 221, 198),
+        "stitch": (153, 118, 82),
+        "hole": (92, 74, 56),
+        "accent": (196, 138, 62),
+    }
+    draw.ellipse((160, 160, 1440, 1440), fill=palette["cotton"], outline=palette["accent"], width=10)
+    for radius in (1180, 990, 800, 610):
+        left = center - radius // 2
+        top = center - radius // 2
+        right = center + radius // 2
+        bottom = center + radius // 2
+        draw.ellipse((left, top, right, bottom), outline=palette["stitch"], width=8)
+    draw.ellipse((700, 700, 900, 900), fill=palette["hole"], outline=palette["stitch"], width=10)
+    draw.text((470, 1450), "ClipForge demo placeholder", fill=palette["accent"])
+    image.save(image_path, format="PNG")
+
+    stored = get_storage().save_file(
+        project_id=project_id,
+        source_path=image_path,
+        content_type="image/png",
+    )
+    created = create_asset(
+        project_id=project_id,
+        file_path=Path(stored["local_path"]),
+        original_filename="buffing-wheel-demo.png",
+        primary_role=primary_role,
+        secondary_role=secondary_role,
+        must_transfer=must_transfer,
+        must_not_transfer=must_not_transfer,
+        applies_to_shots=applies_to_shots,
+        is_identity_anchor=is_identity_anchor,
+        user_approved=user_approved,
+        mime_type="image/png",
+        storage_backend=stored["backend"],
+        access_url=stored["access_url"],
+        object_key=stored.get("object_key"),
+        content_type=stored.get("content_type"),
+        size_bytes=stored.get("size_bytes"),
+    )
+    created["metadata_json"]["demo_placeholder"] = True
+    asset_repository.update_asset(created["id"], {"metadata_json": created["metadata_json"]})
+    created["audit_report_json"]["demo_placeholder"] = True
     return created
 
 

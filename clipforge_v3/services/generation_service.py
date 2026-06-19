@@ -814,7 +814,7 @@ def submit_generation(
             "last_frame_path": last_frame_path,
             "seed": random.randint(1, 999999),
             "generation_settings_json": {"tier": tier, "provider_payload": sanitize(prompt_version["provider_payload_json"])},
-            "estimated_cost": provider.estimate_cost(duration=prompt_version["provider_payload_json"]["duration"], resolution=prompt_version["provider_payload_json"]["resolution"]),
+            "estimated_cost": 0,
             "tier": tier,
             "changed_variable": changed_variable,
             "previous_value": previous_value,
@@ -846,7 +846,7 @@ def submit_generation(
             "model": prompt_version["provider_payload_json"]["model"],
             "duration": prompt_version["provider_payload_json"]["duration"],
             "resolution": prompt_version["provider_payload_json"]["resolution"],
-            "estimated_cost": provider.estimate_cost(duration=prompt_version["provider_payload_json"]["duration"], resolution=prompt_version["provider_payload_json"]["resolution"]),
+            "estimated_cost": 0,
             "status": "succeeded",
             "raw_usage_json": provider_result,
         }

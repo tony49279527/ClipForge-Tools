@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
@@ -9,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from clipforge_v3 import is_v3_enabled
+from clipforge_v3.repositories import shot_repository, take_repository
 from clipforge_v3.schemas.project import V3ProjectCreate
 from clipforge_v3.services import asset_service, project_service, shot_service
 from clipforge_v3.services.assembly_service import rebuild_final_video
@@ -19,10 +21,36 @@ from clipforge_v3.services.readiness_service import readiness
 from clipforge_v3.services.review_service import plan_retake, review_take
 from clipforge_v3.services.storage_service import StorageError, get_storage
 from clipforge_v3.services.take_service import clear_selected_take, compare_takes, mark_local_file_deleted, restore_take_history, select_take
+from db import DB_PATH, DB_URL
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 router = APIRouter(prefix="/v3", tags=["clipforge-v3"])
+OUTPUTS_DIR = Path(os.getenv("OUTPUTS_DIR", "outputs")).resolve()
+
+DEMO_PRODUCT = {
+    "project_name": "Buffing Wheel Demo Project",
+    "product_name": "6 inch stitched cotton buffing wheel",
+    "product_category": "hardware polishing tool",
+    "target_market": "Amazon US",
+    "target_audience": "Amazon tool buyers and garage DIY users",
+    "target_platform": "amazon",
+    "aspect_ratio": "16:9",
+    "total_duration": 20,
+    "default_clip_duration": 5,
+    "resolution": "720p",
+    "language": "en",
+    "materials_input": "natural off-white stitched cotton",
+    "dimensions_input": "6-inch diameter, 1-inch thickness, 1/2-inch arbor hole",
+    "working_surface_input": "outer cotton circumference for final polishing",
+    "source_description": (
+        "6 inch stitched cotton buffing wheel for final polishing. Approximately 70 ply, "
+        "1 inch thickness, 1/2-inch arbor hole, concentric stitched rings, natural off-white cotton, "
+        "mounted by passing the spindle through the center hole and securing with washer and nut. "
+        "Use the outer cotton circumference as the working surface. Do not turn into wool, felt, "
+        "synthetic fur, or grinding stone."
+    ),
+}
 
 
 def require_v3_enabled() -> None:
@@ -45,6 +73,81 @@ def build_context(request: Request) -> dict:
         "v3_video_provider": get_video_provider_mode(),
         "v3_real_api_enabled": real_api_enabled(),
     }
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    return os.getenv(name, "true" if default else "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _maintenance_mode_enabled() -> bool:
+    for name in ("V3_MAINTENANCE_MODE", "CLIPFORGE_MAINTENANCE_MODE", "MAINTENANCE_MODE"):
+        if _env_bool(name):
+            return True
+    return False
+
+
+def _writes_enabled() -> bool:
+    for name in ("V3_WRITE_FREEZE", "CLIPFORGE_WRITE_FREEZE", "WRITE_FREEZE"):
+        if _env_bool(name):
+            return False
+    if os.getenv("V3_WRITES_ENABLED"):
+        return _env_bool("V3_WRITES_ENABLED", True)
+    return not _maintenance_mode_enabled()
+
+
+def _database_backend_label() -> str:
+    if DB_URL:
+        lowered = DB_URL.lower()
+        if "postgres" in lowered:
+            return "PostgreSQL"
+        if lowered.startswith("sqlite"):
+            return "SQLite"
+        return "Custom database URL"
+    return f"SQLite file ({DB_PATH.name})"
+
+
+def _system_overview() -> dict:
+    ready = readiness()
+    checks = ready.get("checks", {})
+    return {
+        "provider_mode": get_video_provider_mode(),
+        "paid_disabled": not real_api_enabled(),
+        "database_backend": _database_backend_label(),
+        "storage_backend": os.getenv("V3_STORAGE_BACKEND", os.getenv("STORAGE_BACKEND", "local")).strip().lower() or "local",
+        "redis_ok": checks.get("redis", {}).get("ok", False),
+        "redis_message": checks.get("redis", {}).get("message", "Redis status unavailable."),
+        "worker_ok": checks.get("worker", {}).get("ok", False),
+        "worker_message": checks.get("worker", {}).get("message", "Worker status unavailable."),
+        "maintenance_mode": _maintenance_mode_enabled(),
+        "writes_enabled": _writes_enabled(),
+        "ready_checks": ready,
+    }
+
+
+def _demo_redirect(project_id: int | None = None, notice: str | None = None, error: str | None = None) -> RedirectResponse:
+    params: dict[str, str] = {}
+    if project_id is not None:
+        params["project_id"] = str(project_id)
+    if notice:
+        params["notice"] = notice
+    if error:
+        params["error"] = error
+    suffix = f"?{urlencode(params)}" if params else ""
+    return RedirectResponse(url=f"/v3{suffix}", status_code=303)
+
+
+def _take_preview_url(take: dict) -> str | None:
+    if take.get("local_path"):
+        return f"/v3/takes/{take['id']}/video"
+    if take.get("remote_url"):
+        return take["remote_url"]
+    return None
+
+
+def _demo_can_override_prompt(prompt_version: dict) -> bool:
+    issues = prompt_version.get("validation_result_json", {}).get("lint_issues", [])
+    blocking = [item for item in issues if item.get("severity") == "blocking_error"]
+    return bool(blocking) and all(item.get("code") == "MISSING_REQUIRED_REFERENCE" for item in blocking)
 
 
 @router.get("/health")
@@ -78,12 +181,251 @@ def v3_local_storage_file(project_id: int, filename: str):
     return FileResponse(path)
 
 
+@router.get("/takes/{take_id}/video")
+def v3_take_video(take_id: int):
+    require_v3_enabled()
+    row = take_repository.get_take(take_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Take not found")
+    local_path = row["local_path"]
+    if not local_path:
+        raise HTTPException(status_code=404, detail="This take does not have a local preview video.")
+    path = Path(local_path).resolve()
+    try:
+        path.relative_to(OUTPUTS_DIR)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid take preview path") from exc
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Preview file not found")
+    return FileResponse(path, media_type="video/mp4")
+
+
 @router.get("")
 def v3_index(request: Request):
     require_v3_enabled()
     context = build_context(request)
-    context.update({"projects": project_service.list_projects()[:10]})
+    projects = project_service.list_projects()
+    selected_project_id = request.query_params.get("project_id")
+    selected_detail = None
+    latest_prompt = None
+    latest_take = None
+    if selected_project_id:
+        try:
+            selected_detail = project_service.get_project_detail(int(selected_project_id))
+        except Exception:
+            selected_detail = None
+    if selected_detail:
+        if selected_detail["prompt_versions"]:
+            latest_prompt = max(selected_detail["prompt_versions"], key=lambda item: item["id"])
+        if selected_detail["takes"]:
+            latest_take = max(selected_detail["takes"], key=lambda item: item["id"])
+            latest_take["preview_url"] = _take_preview_url(latest_take)
+    context.update(
+        {
+            "projects": projects[:10],
+            "all_projects": projects,
+            "selected_detail": selected_detail,
+            "selected_project": selected_detail["project"] if selected_detail else None,
+            "latest_prompt": latest_prompt,
+            "latest_take": latest_take,
+            "notice": request.query_params.get("notice", ""),
+            "error_message": request.query_params.get("error", ""),
+            "demo_defaults": DEMO_PRODUCT,
+            "system_overview": _system_overview(),
+        }
+    )
     return templates.TemplateResponse("v3/index.html", context)
+
+
+@router.post("/demo/select-project")
+def v3_demo_select_project(project_id: int = Form(...)):
+    require_v3_enabled()
+    return _demo_redirect(project_id=project_id)
+
+
+@router.post("/demo/projects")
+def v3_demo_create_project(
+    project_name: str = Form(""),
+    product_name: str = Form(""),
+    product_category: str = Form(""),
+    material: str = Form(""),
+    key_selling_points: str = Form(""),
+    target_marketplace: str = Form(""),
+    video_style: str = Form(""),
+    use_demo_product: bool = Form(False),
+):
+    require_v3_enabled()
+    defaults = DEMO_PRODUCT if use_demo_product or not product_name.strip() else {}
+    resolved_project_name = project_name.strip() or defaults.get("project_name") or f"{product_name.strip() or 'ClipForge'} Demo"
+    resolved_product_name = product_name.strip() or defaults.get("product_name", "Demo Product")
+    resolved_category = product_category.strip() or defaults.get("product_category", "hardware tool")
+    resolved_market = target_marketplace.strip() or defaults.get("target_market", "Amazon US")
+    source_description = defaults.get("source_description", "")
+    if not source_description:
+        source_description = (
+            f"{resolved_product_name}. Materials: {material.strip() or 'not provided'}. "
+            f"Key selling points: {key_selling_points.strip() or 'not provided'}. "
+            f"Video style: {video_style.strip() or 'clean Amazon demo'}. "
+            "Show product identity, safe use, installation relationship, and one clear action per shot."
+        )
+    payload = V3ProjectCreate(
+        project_name=resolved_project_name,
+        product_name=resolved_product_name,
+        product_category=resolved_category,
+        target_market=resolved_market,
+        target_audience="Operators validating a mock V3 demo flow",
+        target_platform=defaults.get("target_platform", "amazon"),
+        aspect_ratio=defaults.get("aspect_ratio", "16:9"),
+        total_duration=defaults.get("total_duration", 20),
+        default_clip_duration=defaults.get("default_clip_duration", 5),
+        resolution=defaults.get("resolution", "720p"),
+        language=defaults.get("language", "en"),
+        source_description=source_description,
+        dimensions_input=defaults.get("dimensions_input", ""),
+        materials_input=material.strip() or defaults.get("materials_input", ""),
+        working_surface_input=defaults.get("working_surface_input", ""),
+        parts_summary=key_selling_points.strip() or source_description,
+        installation_method="Mount securely, then show one safe polishing action.",
+        intended_for="Mock V3 demo flow",
+        safety_notes="Demo mode only. Do not treat this mock output as a real safety instruction video.",
+    )
+    project = project_service.create_project(payload)
+    return _demo_redirect(project_id=project["project"]["id"], notice="Demo project created.")
+
+
+@router.post("/demo/projects/{project_id}/product-info")
+def v3_demo_save_product_info(
+    project_id: int,
+    source_description: str = Form(...),
+    dimensions_input: str = Form(""),
+    materials_input: str = Form(""),
+    working_surface_input: str = Form(""),
+    parts_summary: str = Form(""),
+    target_marketplace: str = Form(""),
+    video_style: str = Form(""),
+    confirm_truth: bool = Form(False),
+):
+    require_v3_enabled()
+    project_service.update_product_truth(
+        project_id,
+        {
+            "source_description": source_description,
+            "dimensions_input": dimensions_input,
+            "materials_input": materials_input,
+            "working_surface_input": working_surface_input,
+            "parts_summary": parts_summary or source_description,
+            "product_url": "",
+            "package_quantity": "",
+            "installation_method": f"Marketplace: {target_marketplace}. Style: {video_style}.",
+            "intended_for": "Mock product video validation",
+            "not_for": "Paid generation",
+            "safety_notes": "Demo mode only.",
+        },
+        approve=confirm_truth,
+    )
+    message = "Product Truth saved and confirmed." if confirm_truth else "Product info saved."
+    return _demo_redirect(project_id=project_id, notice=message)
+
+
+@router.post("/demo/projects/{project_id}/assets/upload")
+def v3_demo_upload_asset(
+    project_id: int,
+    asset_file: UploadFile = File(...),
+):
+    require_v3_enabled()
+    try:
+        stored = get_storage().save_upload(project_id=project_id, upload=asset_file)
+        asset_service.create_asset(
+            project_id=project_id,
+            file_path=Path(stored["local_path"]),
+            original_filename=stored["original_filename"],
+            primary_role="product_identity",
+            secondary_role=None,
+            must_transfer=["overall geometry", "center hole", "material color"],
+            must_not_transfer=["background", "text overlay", "camera move"],
+            applies_to_shots=["S01", "S02", "S03"],
+            is_identity_anchor=True,
+            user_approved=True,
+            mime_type=stored["mime_type"],
+            storage_backend=stored["backend"],
+            access_url=stored["access_url"],
+            object_key=stored.get("object_key"),
+            content_type=stored.get("content_type"),
+            size_bytes=stored.get("size_bytes"),
+        )
+    except StorageError as exc:
+        return _demo_redirect(project_id=project_id, error=f"{exc} Please upload a JPG, PNG, or WEBP image.")
+    return _demo_redirect(project_id=project_id, notice="Product image uploaded for mock planning.")
+
+
+@router.post("/demo/projects/{project_id}/assets/sample")
+def v3_demo_sample_asset(project_id: int):
+    require_v3_enabled()
+    asset_service.create_demo_placeholder_asset(project_id=project_id)
+    return _demo_redirect(project_id=project_id, notice="Built-in demo image is ready.")
+
+
+@router.post("/demo/projects/{project_id}/prompt")
+def v3_demo_generate_prompt(project_id: int):
+    require_v3_enabled()
+    detail = project_service.get_project_detail(project_id)
+    if not detail["product_truth"] or not detail["product_truth"]["user_approved"]:
+        return _demo_redirect(project_id=project_id, error="Please confirm Product Truth before generating a mock prompt.")
+    if not any(asset["primary_role"] == "product_identity" and asset["user_approved"] for asset in detail["assets"]):
+        return _demo_redirect(project_id=project_id, error="Please upload a product image or use the built-in demo image first.")
+    if not detail["shots"]:
+        project_service.generate_director_plan(project_id)
+        detail = project_service.get_project_detail(project_id)
+    if any(not shot.get("user_approved") for shot in detail["shots"]):
+        project_service.confirm_shot_contracts(project_id)
+        detail = project_service.get_project_detail(project_id)
+    first_shot = sorted(detail["shots"], key=lambda item: item["sequence_index"])[0]
+    prompt_version = compile_prompt(project_id=project_id, shot_id=first_shot["id"])
+    if get_video_provider_mode() == "mock" and not prompt_version.get("allow_submit") and _demo_can_override_prompt(prompt_version):
+        validation = dict(prompt_version.get("validation_result_json") or {})
+        validation["demo_override"] = {
+            "enabled": True,
+            "reason": "Mock-only demo flow bypassed a non-paid identity-preservation blocker.",
+        }
+        warnings = list(prompt_version.get("compiler_warnings_json") or [])
+        warnings.append("demo_override:mock_generation_allowed")
+        shot_repository.update_prompt_version(
+            prompt_version["id"],
+            {
+                "allow_submit": 1,
+                "validation_result_json": validation,
+                "compiler_warnings_json": warnings,
+            },
+        )
+    return _demo_redirect(project_id=project_id, notice=f"Mock prompt prepared for {first_shot['shot_id']}.")
+
+
+@router.post("/demo/projects/{project_id}/generate")
+def v3_demo_generate_mock(project_id: int):
+    require_v3_enabled()
+    if get_video_provider_mode() != "mock" or real_api_enabled():
+        return _demo_redirect(project_id=project_id, error="Demo flow is locked to mock mode only. Real paid generation is disabled here.")
+    detail = project_service.get_project_detail(project_id)
+    if not detail["shots"]:
+        return _demo_redirect(project_id=project_id, error="Generate a mock prompt first.")
+    prompt_versions = sorted(detail["prompt_versions"], key=lambda item: item["id"], reverse=True)
+    if not prompt_versions:
+        return _demo_redirect(project_id=project_id, error="No prompt is available yet. Generate a mock prompt first.")
+    first_shot = sorted(detail["shots"], key=lambda item: item["sequence_index"])[0]
+    prompt_version = next((item for item in prompt_versions if item["shot_id"] == first_shot["id"]), None)
+    if not prompt_version:
+        return _demo_redirect(project_id=project_id, error="No prompt is available for the first shot yet.")
+    result = submit_generation(project_id, first_shot["id"], prompt_version["id"], "draft")
+    log_event(
+        stage="demo_mock_generate",
+        status="succeeded",
+        request_id=new_request_id(),
+        project_id=project_id,
+        shot_id=first_shot["id"],
+        take_id=result.get("take_id"),
+        message="Demo mock generation finished without calling a paid provider.",
+    )
+    return _demo_redirect(project_id=project_id, notice=f"Mock take created for {first_shot['shot_id']}. Cost remains 0.")
 
 
 @router.get("/projects")

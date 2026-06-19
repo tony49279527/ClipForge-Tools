@@ -8,13 +8,14 @@ from pathlib import Path
 from typing import List
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from clipforge_v3 import is_v3_enabled
 from clipforge_v3.migrations import run_v3_migrations
 from clipforge_v3.router import router as v3_router
+from clipforge_v3.services.maintenance_service import is_maintenance_mode, maintenance_payload
 from db import (
     create_clip_records,
     create_job,
@@ -80,6 +81,19 @@ app = FastAPI(title="ClipForge Tools")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(v3_router)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+WRITE_LIKE_GET_PREFIXES = ("/auth/", "/oauth")
+
+
+@app.middleware("http")
+async def maintenance_write_freeze(request: Request, call_next):
+    path = request.url.path
+    write_like_get = request.method.upper() == "GET" and path.startswith(WRITE_LIKE_GET_PREFIXES)
+    if is_maintenance_mode() and (request.method.upper() in WRITE_METHODS or write_like_get):
+        return JSONResponse(status_code=503, content=maintenance_payload())
+    return await call_next(request)
 
 
 def resolve_lang(request: Request) -> str:

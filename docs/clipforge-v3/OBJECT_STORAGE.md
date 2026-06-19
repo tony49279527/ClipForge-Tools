@@ -34,9 +34,13 @@ V3_STORAGE_BACKEND=r2
 R2_ACCOUNT_ID=
 R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
-R2_BUCKET_NAME=
-R2_PUBLIC_BASE_URL=
 R2_ENDPOINT_URL=
+R2_PUBLIC_BUCKET_NAME=
+R2_PRIVATE_BUCKET_NAME=
+R2_PUBLIC_BASE_URL=
+
+# Backward-compatible single-bucket mode
+R2_BUCKET_NAME=
 ```
 
 `R2_ENDPOINT_URL` is optional when `R2_ACCOUNT_ID` is set. If omitted, ClipForge builds:
@@ -47,13 +51,24 @@ https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com
 
 `R2_PUBLIC_BASE_URL` must be HTTPS and is normalized without a trailing slash. Secrets are never written to the database and should not be printed in logs.
 
+Bucket selection rules:
+
+- If both `R2_PUBLIC_BUCKET_NAME` and `R2_PRIVATE_BUCKET_NAME` are set, ClipForge uses dual-bucket mode.
+- If only `R2_BUCKET_NAME` is set, ClipForge uses the old single-bucket compatibility mode.
+- If only one dual-bucket variable is set, startup fails with a configuration error.
+- If dual-bucket variables and `R2_BUCKET_NAME` are all set, dual-bucket mode wins.
+- Public and private bucket names must be different in dual-bucket mode.
+- `V3_STORAGE_BACKEND=local` does not require any R2 configuration.
+
 ## 4. Bucket Requirements
 
-Create a dedicated alpha bucket, not a production bucket. Configure:
+Create dedicated alpha buckets, not production buckets. Configure:
 
-- S3-compatible R2 API credentials with least privilege for the test bucket.
+- S3-compatible R2 API credentials with least privilege for the public and private buckets.
+- `R2_PUBLIC_BUCKET_NAME` for product reference images.
+- `R2_PRIVATE_BUCKET_NAME` for generated videos.
 - A public HTTPS base URL or custom domain for product reference images.
-- Private object access for generated videos unless a separate public media policy is intentionally added later.
+- Private object access for generated videos.
 
 ## 5. Product Image Access
 
@@ -64,8 +79,8 @@ Flow:
 ```text
 UploadFile
 -> local validation cache
--> R2 put_object
--> head_object verification
+-> R2 put_object to R2_PUBLIC_BUCKET_NAME
+-> head_object verification in R2_PUBLIC_BUCKET_NAME
 -> v3_assets.storage_backend = r2
 -> v3_assets.object_key
 -> v3_assets.access_url = {R2_PUBLIC_BASE_URL}/{object_key}
@@ -84,8 +99,8 @@ Flow:
 ```text
 Ark signed result URL
 -> temporary local download
--> R2 object upload
--> head_object verification
+-> R2 object upload to R2_PRIVATE_BUCKET_NAME
+-> head_object verification in R2_PRIVATE_BUCKET_NAME
 -> v3_takes.storage_backend = r2
 -> v3_takes.object_key
 -> v3_takes.content_type = video/mp4
@@ -93,7 +108,7 @@ Ark signed result URL
 -> no persisted presigned playback URL
 ```
 
-`R2Storage.get_download_url(object_key, expires_in=...)` generates a short-lived signed GET URL at read time. Expiry is clamped between 5 and 60 minutes. UI playback for private R2 videos is still a follow-up task; the current service layer is in place and tested with mocks.
+`R2Storage.get_download_url(object_key, expires_in=...)` generates a short-lived signed GET URL against `R2_PRIVATE_BUCKET_NAME` at read time. Expiry is clamped between 5 and 60 minutes. The presigned URL is not persisted to the database. UI playback for private R2 videos is still a follow-up task; the current service layer is in place and tested with mocks.
 
 ## 7. Object Key Structure
 
@@ -114,6 +129,7 @@ These keys:
 - are stable across machines
 - avoid collisions for uploaded assets by content digest prefix
 - are stable for generated videos by submission ID
+- do not include bucket names; the bucket role is inferred by record type (`v3_assets` public, `v3_takes` private)
 
 ## 8. Upload And Recovery
 
@@ -143,7 +159,9 @@ If the R2 object already exists with the expected size, `R2Storage.save_file()` 
 - No R2 secrets are persisted.
 - No presigned GET URL is persisted.
 - Public product image URLs contain no secret query parameters.
-- Generated videos are designed for dynamic short-lived signed URLs.
+- Generated videos are stored in the private bucket and are designed for dynamic short-lived signed URLs.
+- Product images are always written to the public bucket in dual-bucket mode.
+- Generated videos are always written to the private bucket in dual-bucket mode.
 - Tests mock all S3/R2 calls.
 - Storage recovery must never call `submit_task()`.
 
@@ -167,15 +185,16 @@ export V3_STORAGE_BACKEND=r2
 export R2_ACCOUNT_ID=...
 export R2_ACCESS_KEY_ID=...
 export R2_SECRET_ACCESS_KEY=...
-export R2_BUCKET_NAME=...
+export R2_PUBLIC_BUCKET_NAME=clipforge-public-assets
+export R2_PRIVATE_BUCKET_NAME=clipforge-private-videos
 export R2_PUBLIC_BASE_URL=https://...
 ```
 
-Do not paste secrets into chat, docs, logs, or Git. Use environment-specific secret storage.
+`R2_BUCKET_NAME` is retained only for old single-bucket compatibility. Cloud Run should use the dual-bucket variables above. V3 is enabled online only after the R2 smoke check passes. Do not paste secrets into chat, docs, logs, or Git. Use environment-specific secret storage.
 
 ## 12. Not Complete
 
-- No real R2 upload/read/delete validation has been executed in this branch.
+- Real R2 smoke validation has passed for public upload/read/delete and private upload/presigned-read/delete using `scripts/v3/test_real_r2_storage.py`.
 - UI playback for private R2 videos still needs a signed-download endpoint or equivalent page integration.
 - Lifecycle policies, retention, and bucket cleanup are not yet automated.
 - Multi-user authorization for private video access is not implemented.

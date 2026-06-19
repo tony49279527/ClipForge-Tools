@@ -283,9 +283,7 @@ def _ensure_column(table_name: str, column_name: str, column_definition: str) ->
         raise ValueError(f"Unsupported v3 migration table: {table_name}")
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"PRAGMA table_info({table_name})")
-    existing = {row[1] for row in cur.fetchall()}
-    if column_name not in existing:
+    if not cur.column_exists(table_name, column_name):
         cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
     conn.commit()
     conn.close()

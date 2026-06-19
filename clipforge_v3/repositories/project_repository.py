@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from typing import Any
 
-from db import get_conn, utc_now
+from db import DatabaseIntegrityError, get_conn, insert_row, select_all, select_one, update_row_by_id, utc_now
 
 from clipforge_v3.migrations import ensure_v3_schema
 
@@ -12,72 +11,47 @@ from clipforge_v3.migrations import ensure_v3_schema
 def create_project(payload: dict[str, Any]) -> int:
     ensure_v3_schema()
     now = utc_now()
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO v3_projects (
-            project_name, product_name, product_category, target_market, target_audience,
-            target_platform, aspect_ratio, total_duration, default_clip_duration,
-            resolution, language, project_status, current_stage, product_url,
-            dimensions_input, materials_input, package_quantity, parts_summary,
-            installation_method, working_surface_input, intended_for, not_for,
-            safety_notes, director_plan_status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            payload["project_name"],
-            payload["product_name"],
-            payload["product_category"],
-            payload["target_market"],
-            payload["target_audience"],
-            payload["target_platform"],
-            payload["aspect_ratio"],
-            payload["total_duration"],
-            payload["default_clip_duration"],
-            payload["resolution"],
-            payload["language"],
-            payload.get("project_status", "draft"),
-            payload.get("current_stage", "project_brief"),
-            payload.get("product_url", ""),
-            payload.get("dimensions_input", ""),
-            payload.get("materials_input", ""),
-            payload.get("package_quantity", ""),
-            payload.get("parts_summary", ""),
-            payload.get("installation_method", ""),
-            payload.get("working_surface_input", ""),
-            payload.get("intended_for", ""),
-            payload.get("not_for", ""),
-            payload.get("safety_notes", ""),
-            payload.get("director_plan_status", "not_started"),
-            now,
-            now,
-        ),
+    return insert_row(
+        "v3_projects",
+        {
+            "project_name": payload["project_name"],
+            "product_name": payload["product_name"],
+            "product_category": payload["product_category"],
+            "target_market": payload["target_market"],
+            "target_audience": payload["target_audience"],
+            "target_platform": payload["target_platform"],
+            "aspect_ratio": payload["aspect_ratio"],
+            "total_duration": payload["total_duration"],
+            "default_clip_duration": payload["default_clip_duration"],
+            "resolution": payload["resolution"],
+            "language": payload["language"],
+            "project_status": payload.get("project_status", "draft"),
+            "current_stage": payload.get("current_stage", "project_brief"),
+            "product_url": payload.get("product_url", ""),
+            "dimensions_input": payload.get("dimensions_input", ""),
+            "materials_input": payload.get("materials_input", ""),
+            "package_quantity": payload.get("package_quantity", ""),
+            "parts_summary": payload.get("parts_summary", ""),
+            "installation_method": payload.get("installation_method", ""),
+            "working_surface_input": payload.get("working_surface_input", ""),
+            "intended_for": payload.get("intended_for", ""),
+            "not_for": payload.get("not_for", ""),
+            "safety_notes": payload.get("safety_notes", ""),
+            "director_plan_status": payload.get("director_plan_status", "not_started"),
+            "created_at": now,
+            "updated_at": now,
+        },
     )
-    project_id = int(cur.lastrowid)
-    conn.commit()
-    conn.close()
-    return project_id
 
 
 def list_projects() -> list:
     ensure_v3_schema()
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM v3_projects ORDER BY id DESC")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+    return select_all("SELECT * FROM v3_projects ORDER BY id DESC")
 
 
 def get_project(project_id: int):
     ensure_v3_schema()
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM v3_projects WHERE id = ?", (project_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row
+    return select_one("SELECT * FROM v3_projects WHERE id = :project_id", {"project_id": project_id})
 
 
 def update_project(project_id: int, fields: dict[str, Any]) -> None:
@@ -86,58 +60,37 @@ def update_project(project_id: int, fields: dict[str, Any]) -> None:
     ensure_v3_schema()
     payload = dict(fields)
     payload["updated_at"] = utc_now()
-    keys = list(payload.keys())
-    values = [payload[key] for key in keys] + [project_id]
-    assignments = ", ".join(f"{key} = ?" for key in keys)
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(f"UPDATE v3_projects SET {assignments} WHERE id = ?", values)
-    conn.commit()
-    conn.close()
+    update_row_by_id("v3_projects", project_id, payload)
 
 
 def create_product_truth(payload: dict[str, Any]) -> int:
     ensure_v3_schema()
     now = utc_now()
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO v3_product_truth (
-            project_id, source_description, immutable_geometry_json, dimensions_json,
-            material_json, colors_json, components_json, installation_rules_json,
-            working_surface_json, allowed_behaviors_json, forbidden_transformations_json,
-            forbidden_materials_json, safety_constraints_json, confidence_json,
-            user_approved, version, created_at, updated_at, product_truth_json, invalidates_shots
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            payload["project_id"],
-            payload["source_description"],
-            json.dumps(payload.get("immutable_geometry_json", {}), ensure_ascii=False),
-            json.dumps(payload.get("dimensions_json", {}), ensure_ascii=False),
-            json.dumps(payload.get("material_json", {}), ensure_ascii=False),
-            json.dumps(payload.get("colors_json", {}), ensure_ascii=False),
-            json.dumps(payload.get("components_json", []), ensure_ascii=False),
-            json.dumps(payload.get("installation_rules_json", []), ensure_ascii=False),
-            json.dumps(payload.get("working_surface_json", {}), ensure_ascii=False),
-            json.dumps(payload.get("allowed_behaviors_json", []), ensure_ascii=False),
-            json.dumps(payload.get("forbidden_transformations_json", []), ensure_ascii=False),
-            json.dumps(payload.get("forbidden_materials_json", []), ensure_ascii=False),
-            json.dumps(payload.get("safety_constraints_json", []), ensure_ascii=False),
-            json.dumps(payload.get("confidence_json", {}), ensure_ascii=False),
-            1 if payload.get("user_approved") else 0,
-            payload.get("version", 1),
-            now,
-            now,
-            json.dumps(payload.get("product_truth_json", {}), ensure_ascii=False),
-            1 if payload.get("invalidates_shots") else 0,
-        ),
+    return insert_row(
+        "v3_product_truth",
+        {
+            "project_id": payload["project_id"],
+            "source_description": payload["source_description"],
+            "immutable_geometry_json": json.dumps(payload.get("immutable_geometry_json", {}), ensure_ascii=False),
+            "dimensions_json": json.dumps(payload.get("dimensions_json", {}), ensure_ascii=False),
+            "material_json": json.dumps(payload.get("material_json", {}), ensure_ascii=False),
+            "colors_json": json.dumps(payload.get("colors_json", {}), ensure_ascii=False),
+            "components_json": json.dumps(payload.get("components_json", []), ensure_ascii=False),
+            "installation_rules_json": json.dumps(payload.get("installation_rules_json", []), ensure_ascii=False),
+            "working_surface_json": json.dumps(payload.get("working_surface_json", {}), ensure_ascii=False),
+            "allowed_behaviors_json": json.dumps(payload.get("allowed_behaviors_json", []), ensure_ascii=False),
+            "forbidden_transformations_json": json.dumps(payload.get("forbidden_transformations_json", []), ensure_ascii=False),
+            "forbidden_materials_json": json.dumps(payload.get("forbidden_materials_json", []), ensure_ascii=False),
+            "safety_constraints_json": json.dumps(payload.get("safety_constraints_json", []), ensure_ascii=False),
+            "confidence_json": json.dumps(payload.get("confidence_json", {}), ensure_ascii=False),
+            "user_approved": 1 if payload.get("user_approved") else 0,
+            "version": payload.get("version", 1),
+            "created_at": now,
+            "updated_at": now,
+            "product_truth_json": json.dumps(payload.get("product_truth_json", {}), ensure_ascii=False),
+            "invalidates_shots": 1 if payload.get("invalidates_shots") else 0,
+        },
     )
-    row_id = int(cur.lastrowid)
-    conn.commit()
-    conn.close()
-    return row_id
 
 
 def list_product_truth_versions(project_id: int) -> list:
@@ -214,57 +167,41 @@ def create_continuity_state(payload: dict[str, Any]) -> int:
 
 def create_usage_event(payload: dict[str, Any]) -> int:
     ensure_v3_schema()
-    conn = get_conn()
-    cur = conn.cursor()
     event_key = payload.get("event_key")
     try:
-        cur.execute(
-            """
-            INSERT INTO v3_usage_events (
-                project_id, shot_id, take_id, stage, provider, model, duration, resolution,
-                input_tokens, output_tokens, total_tokens, estimated_cost, status, raw_usage_json,
-                event_key, source_type, source_id, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                payload["project_id"],
-                payload.get("shot_id"),
-                payload.get("take_id"),
-                payload["stage"],
-                payload["provider"],
-                payload["model"],
-                payload.get("duration"),
-                payload.get("resolution"),
-                payload.get("input_tokens", 0),
-                payload.get("output_tokens", 0),
-                payload.get("total_tokens", 0),
-                payload.get("estimated_cost", 0),
-                payload.get("status", "succeeded"),
-                json.dumps(payload.get("raw_usage_json", {}), ensure_ascii=False),
-                event_key,
-                payload.get("source_type"),
-                payload.get("source_id"),
-                utc_now(),
-            ),
+        return insert_row(
+            "v3_usage_events",
+            {
+                "project_id": payload["project_id"],
+                "shot_id": payload.get("shot_id"),
+                "take_id": payload.get("take_id"),
+                "stage": payload["stage"],
+                "provider": payload["provider"],
+                "model": payload["model"],
+                "duration": payload.get("duration"),
+                "resolution": payload.get("resolution"),
+                "input_tokens": payload.get("input_tokens", 0),
+                "output_tokens": payload.get("output_tokens", 0),
+                "total_tokens": payload.get("total_tokens", 0),
+                "estimated_cost": payload.get("estimated_cost", 0),
+                "status": payload.get("status", "succeeded"),
+                "raw_usage_json": json.dumps(payload.get("raw_usage_json", {}), ensure_ascii=False),
+                "event_key": event_key,
+                "source_type": payload.get("source_type"),
+                "source_id": payload.get("source_id"),
+                "created_at": utc_now(),
+            },
         )
-        event_id = int(cur.lastrowid)
-        conn.commit()
-    except sqlite3.IntegrityError:
+    except DatabaseIntegrityError:
         if not event_key:
-            conn.close()
             raise
-        conn.rollback()
-        cur.execute("SELECT id, take_id FROM v3_usage_events WHERE event_key = ?", (event_key,))
-        row = cur.fetchone()
+        row = select_one("SELECT id, take_id FROM v3_usage_events WHERE event_key = :event_key", {"event_key": event_key})
         if not row:
-            conn.close()
             raise
         event_id = int(row["id"])
         if payload.get("take_id") and row["take_id"] is None:
-            cur.execute("UPDATE v3_usage_events SET take_id = ? WHERE id = ?", (payload.get("take_id"), event_id))
-            conn.commit()
-    conn.close()
-    return event_id
+            update_row_by_id("v3_usage_events", event_id, {"take_id": payload.get("take_id")})
+        return event_id
 
 
 def create_preflight_check(payload: dict[str, Any]) -> int:

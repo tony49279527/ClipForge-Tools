@@ -27,6 +27,8 @@ def app_env(tmp_path, monkeypatch):
     outputs_dir = tmp_path / "outputs"
     uploads_dir = tmp_path / "uploads"
     db_path = data_dir / "clipforge.db"
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("DB_URL", raising=False)
     monkeypatch.setenv("DATA_DIR", str(data_dir))
     monkeypatch.setenv("DB_PATH", str(db_path))
     monkeypatch.setenv("OUTPUTS_DIR", str(outputs_dir))

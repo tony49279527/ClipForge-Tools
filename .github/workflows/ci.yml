@@ -25,7 +25,8 @@ jobs:
       - name: Python syntax
         run: python -m compileall .
       - name: Import check
-        run: python - <<'PY'
+        run: |
+          python - <<'PY'
           import app
           import clipforge_v3.router
           import clipforge_v3.services.generation_service
@@ -38,4 +39,3 @@ jobs:
         run: python evaluation/run_evals.py
       - name: Full V3 workflow smoke
         run: python scripts/test_v3_workflow_smoke.py
-

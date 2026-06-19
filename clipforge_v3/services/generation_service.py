@@ -35,6 +35,7 @@ from clipforge_v3.repositories import project_repository, shot_repository, take_
 from clipforge_v3.schemas.generation import PromptCompileResult
 from clipforge_v3.services.asset_service import list_assets
 from clipforge_v3.services.continuity_service import build_continuity_context, record_continuity_from_take
+from clipforge_v3.services.maintenance_service import assert_writes_allowed
 from clipforge_v3.services.observability_service import sanitize
 from clipforge_v3.services.product_truth_service import get_latest_product_truth
 from clipforge_v3.services.provider_asset_resolver import resolve_provider_references
@@ -346,7 +347,7 @@ def _store_provider_video_artifact(*, local_path: str, provider_video_url: str |
             "size_bytes": size_bytes,
         }
     object_key = take_video_object_key(project_id=project["id"], shot_id=shot["id"], submission_id=submission["id"])
-    stored = storage.save_file(project_id=project["id"], source_path=path, object_key=object_key, content_type="video/mp4")
+    stored = storage.save_file(project_id=project["id"], source_path=path, object_key=object_key, content_type="video/mp4", visibility="private")
     try:
         path.unlink(missing_ok=True)
     except Exception:
@@ -746,6 +747,7 @@ def submit_generation(
     paid_confirmed: bool = False,
     paid_confirmation_token: str | None = None,
 ) -> dict:
+    assert_writes_allowed()
     preflight_result = preflight(project_id, shot_id, prompt_version_id, tier)
     if not preflight_result["allow_submit"]:
         raise ValueError("Preflight failed; generation submission blocked.")
@@ -855,6 +857,7 @@ def submit_generation(
 
 
 def process_generation_submission(submission_id: int) -> dict:
+    assert_writes_allowed()
     submission = take_repository.get_generation_submission(submission_id)
     if not submission:
         raise KeyError(f"Generation submission {submission_id} not found")

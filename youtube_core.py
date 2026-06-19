@@ -42,9 +42,9 @@ def get_credentials_from_env(account_id: Optional[str] = None) -> Credentials:
 
     # Log presence of env vars safely
     logger.info(f"Checking environment variables for account suffix '{suffix}':")
-    logger.info(f"  GOOGLE_CLIENT_ID{suffix}: {'PRESENT (' + client_id[:8] + '...)' if client_id else 'MISSING'}")
-    logger.info(f"  GOOGLE_CLIENT_SECRET{suffix}: {'PRESENT (' + client_secret[:4] + '...)' if client_secret else 'MISSING'}")
-    logger.info(f"  GOOGLE_REFRESH_TOKEN{suffix}: {'PRESENT (' + refresh_token[:8] + '...)' if refresh_token else 'MISSING'}")
+    logger.info(f"  GOOGLE_CLIENT_ID{suffix}: {'PRESENT' if client_id else 'MISSING'}")
+    logger.info(f"  GOOGLE_CLIENT_SECRET{suffix}: {'PRESENT' if client_secret else 'MISSING'}")
+    logger.info(f"  GOOGLE_REFRESH_TOKEN{suffix}: {'PRESENT' if refresh_token else 'MISSING'}")
 
     if not all([client_id, client_secret, refresh_token]):
         missing = [k for k, v in {

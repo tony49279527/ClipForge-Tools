@@ -16,11 +16,17 @@ from rq import Worker
 from task_queue import get_redis, QUEUE_NAME
 
 
+def worker_name(worker_index: int) -> str:
+    runtime_id = os.getenv("K_REVISION") or os.getenv("HOSTNAME") or "local"
+    safe_runtime_id = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in runtime_id)[-48:]
+    return f"clipforge-{safe_runtime_id}-w{worker_index}"
+
+
 def run_worker_process(worker_index: int, burst: bool) -> None:
     """Run one real RQ worker process."""
     redis_conn = get_redis()
-    worker = Worker([QUEUE_NAME], connection=redis_conn, name=f"clipforge-w{worker_index}")
-    worker.work(burst=burst)
+    worker = Worker([QUEUE_NAME], connection=redis_conn, name=worker_name(worker_index))
+    worker.work(burst=burst, with_scheduler=True)
 
 
 def main():
@@ -34,8 +40,9 @@ def main():
     redis_conn = get_redis()
     redis_conn.ping()
 
-    print(f"🚀 Starting ClipForge RQ Worker(s): {args.workers} processes, queue={QUEUE_NAME}")
-    print(f"   Redis: {os.getenv('REDIS_URL', 'redis://localhost:6379/0')}")
+    print(f"Starting ClipForge RQ Worker(s): {args.workers} processes, queue={QUEUE_NAME}")
+    redis_configured = bool(os.getenv("REDIS_URL") or os.getenv("RQ_REDIS_URL"))
+    print(f"   Redis: {'configured' if redis_configured else 'local development default'}")
     print(f"   Burst mode: {args.burst}")
     print()
 

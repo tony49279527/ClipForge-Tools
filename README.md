@@ -20,7 +20,9 @@ Environment variables:
 - `YOUTUBE_TOKEN_PATH`: default `/secrets/youtube_token.json`
 - `YOUTUBE_ACCOUNTS_DIR`: default `./secrets/youtube_accounts`
 - `DATA_DIR`: default `./data`
-- `DB_URL`: optional SQLite URL, for example `sqlite:///./data/clipforge.db`
+- `DATABASE_URL`: optional database URL; defaults to local SQLite and supports `postgresql+psycopg://...` for PostgreSQL
+- `POSTGRES_TEST_DATABASE_URL`: optional disposable PostgreSQL URL for integration and migration rehearsal tests; never point this at production
+- `DB_URL`: backward-compatible SQLite-only URL, for example `sqlite:///./data/clipforge.db`
 - `OUTPUTS_DIR`: default `./outputs`
 - `UPLOADS_DIR`: default `./uploads`
 - `PRICE_PER_MILLION_TOKENS_CNY`: default `46`
@@ -33,6 +35,11 @@ Environment variables:
 - `CLIPFORGE_V3_ENABLED`: default `false`
 - `V3_VIDEO_PROVIDER`: default `mock`
 - `V3_REAL_API_ENABLED`: default `false`
+- `V3_STORAGE_BACKEND`: default `local`; set to `r2` only when Cloudflare R2 configuration is complete
+- `R2_PUBLIC_BUCKET_NAME`: public R2 bucket for V3 product reference images
+- `R2_PRIVATE_BUCKET_NAME`: private R2 bucket for V3 generated videos
+- `R2_PUBLIC_BASE_URL`: HTTPS public base URL for product reference images
+- `R2_BUCKET_NAME`: backward-compatible single-bucket R2 configuration only
 - `SEEDANCE_PROVIDER`: default `ark`
 - `SEEDANCE_MODEL`: Seedance model ID for V3 provider adapter
 - `SEEDANCE_BASE_URL`: Seedance provider base URL
@@ -188,6 +195,14 @@ V3 docs:
 Current V3 development status: `docs/clipforge-v3/CURRENT_STATUS.md`
 Real Provider readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
 Object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
+Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
+PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
+Temporary database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
+Production database cutover runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`
+Redis and worker architecture: `docs/clipforge-v3/REDIS_WORKER_ARCHITECTURE.md`
+Worker restart idempotency: `docs/clipforge-v3/WORKER_RESTART_IDEMPOTENCY.md`
+Production cutover Go/No-Go review: `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`
+Production PostgreSQL candidate attempt: `docs/clipforge-v3/PRODUCTION_POSTGRES_CANDIDATE.md`
 
 - `docs/clipforge-v3/README.md`
 - `docs/clipforge-v3/user-guide-zh.md`
@@ -264,7 +279,7 @@ This repo is prepared for Cloud Run:
 Important Cloud Run limits and recommendations:
 
 1. Cloud Run request timeout defaults to 300 seconds. For this app, set the Cloud Run timeout to `3600` seconds.
-2. Cloud Run local filesystem is temporary. `outputs/`, `uploads/`, and `data/` are acceptable for V1 testing only. Production should move to Cloud Storage and Cloud SQL.
+2. Cloud Run local filesystem is temporary. `outputs/`, `uploads/`, and `data/` are acceptable for V1 testing only. Production should move to object storage and Cloud SQL/PostgreSQL. Do not run production writes against SQLite on a GCSFuse mount.
 3. Set concurrency to `1` for the web service because Seedance generation and FFmpeg stitching are heavy tasks.
 4. Recommended resources: memory `2GiB`, CPU `2`.
 5. FFmpeg is already installed in the Dockerfile.

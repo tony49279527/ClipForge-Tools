@@ -12,7 +12,7 @@ Resolved in state-machine hardening commit:
 2. Provider success persistence is replay-safe. A generation submission can own only one Take through `v3_takes.generation_submission_id`, and video generation cost can be written only once through `v3_usage_events.event_key`.
 3. New real-provider submissions run `_ensure_budget()` before `reserve_generation_submission()`, and old `reserved` rows without `budget_approved_at` cannot be submitted automatically.
 
-Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. The next task should be a controlled real R2 validation against a dedicated test bucket; it must not be combined with any Ark generation.
+Object storage integration has now been added behind `V3_STORAGE_BACKEND=r2` with `LocalStorage` preserved as the default. Real R2 public/private smoke validation has passed without Ark generation. A later Cloud Run database audit found that `/data/clipforge.db` is currently on a GCSFuse mount with SQLite WAL/SHM out-of-order write errors. A `DATABASE_URL` SQLite/PostgreSQL backend foundation, PostgreSQL integration workflow, and migration rehearsal tools now exist, but Cloud Run has not been switched to PostgreSQL and production data has not been migrated.
 
 ## 2. Current Repository Baseline
 
@@ -362,13 +362,14 @@ Current state:
 
 - Asset uploads use `LocalStorage` by default.
 - `clipforge_v3/services/storage_service.py` now provides `LocalStorage` and `R2Storage`.
-- `V3_STORAGE_BACKEND=r2` uploads product images to R2, verifies the object through `head_object`, and stores `v3_assets.storage_backend`, `object_key`, `content_type`, `size_bytes`, and stable HTTPS `access_url`.
-- Generated provider videos still download from Ark to a temporary local file first. In R2 mode, `_store_provider_video_artifact()` uploads that file to R2, verifies the object, and stores `v3_takes.storage_backend`, `object_key`, `content_type`, and `size_bytes`.
-- Generated videos use service-layer signed GET URLs through `R2Storage.get_download_url()`; presigned URLs are not persisted.
+- `V3_STORAGE_BACKEND=r2` supports dual-bucket R2 mode with `R2_PUBLIC_BUCKET_NAME` for product reference images and `R2_PRIVATE_BUCKET_NAME` for generated videos. The old `R2_BUCKET_NAME` single-bucket mode remains supported for compatibility.
+- Product image uploads verify the public-bucket object through `head_object` and store `v3_assets.storage_backend`, `object_key`, `content_type`, `size_bytes`, and stable HTTPS `access_url`.
+- Generated provider videos still download from Ark to a temporary local file first. In R2 mode, `_store_provider_video_artifact()` uploads that file to the private bucket, verifies the object, and stores `v3_takes.storage_backend`, `object_key`, `content_type`, and `size_bytes`.
+- Generated videos use service-layer signed GET URLs through `R2Storage.get_download_url()` against the private bucket; presigned URLs are not persisted.
 
 Remaining production blockers after object storage code integration:
 
-- No real R2 upload/read/delete validation has been executed.
+- Real R2 smoke validation has passed for public upload/read/delete and private upload/presigned-read/delete using dedicated smoke-test objects.
 - UI playback for private R2 videos still needs a signed-download endpoint or equivalent integration.
 - Bucket lifecycle, retention, and cleanup policy are not automated.
 - External authorization for private generated-video access is not implemented.
@@ -399,7 +400,7 @@ Current mapping by file:
 - `test_productization.py` (7): UI surfaces, readiness secrecy, storage rejection, traversal blocking, workflow smoke
 - `test_prompt_compiler.py` (11): prompt limits, templates, conflict detection, payload resolution field, error redaction
 - `test_provider_and_preflight.py` (5): fail-open/fail-closed policy and provider capability checks
-- `test_object_storage.py` (11): R2 configuration, key safety, mocked uploads, provider artifact upload recovery, signed URL generation, migration repeatability
+- `test_object_storage.py` (17): dual-bucket R2 configuration, single-bucket compatibility, key safety, mocked uploads, provider artifact upload recovery, signed URL generation, migration repeatability
 - `test_real_provider_alpha.py` (37): paid confirmation, idempotency, HTTPS reference URLs, unknown state, worker polling reuse, crash replay, budget ordering, database constraints, download recovery, inspector safety
 - `test_v3_routes.py` (9): V3 routing, migrations, project creation, invalidation behavior
 - `test_v3_schemas.py` (14): schema validation and planner helper behavior
@@ -417,7 +418,7 @@ Remaining high-priority missing tests:
 1. Successful local file serving through `/v3/storage/local/...` still needs a positive-path route test; `LocalStorage.base_dir` now exists.
 2. Provider reconciliation command for `unknown_submission_state` is not implemented or tested.
 3. Real provider download recovery has one successful live example, but URL lifetime behavior still needs longer-window evidence.
-4. Object storage is covered by mock tests, but real R2 behavior is not yet validated.
+4. Object storage is covered by mock tests, and real R2 smoke behavior has been validated for upload/read/presigned-read/delete. Private-video UI playback integration remains open.
 5. Long-running worker soak behavior is not covered.
 
 Medium-priority missing tests:
@@ -491,29 +492,33 @@ Remaining high-risk gaps:
 
 1. No operator reconciliation workflow exists yet for `unknown_submission_state`.
 2. Only one real Ark task has been validated; broader product and provider-state coverage is still missing.
-3. R2 code is implemented but not validated against a real Cloudflare test bucket.
-4. Private R2 generated-video playback is not yet wired into the UI.
+3. Cloud Run currently stores SQLite at `/data/clipforge.db` on a GCSFuse mount. Earlier logs showed repeated `clipforge.db-shm` out-of-order write errors. Temporary safeguards now reduce Cloud Run concurrency and max instances to `1`, but SQLite-on-GCSFuse remains unsafe for production writes.
+4. R2 code is implemented and smoke-validated against Cloudflare R2 public/private buckets.
+5. Private R2 generated-video playback is not yet wired into the UI.
+6. Cloud SQL PostgreSQL test rehearsal passed and the test instance was deleted, but PostgreSQL support is not yet deployed to Cloud Run and production data has not been migrated.
 
 ## 15. Recommended Development Order
 
-1. Validate R2 upload, read, presigned download, and delete against a dedicated test bucket
-2. Add UI integration for private R2 generated-video playback/download
-3. Implement operator reconciliation for `unknown_submission_state`
-4. Perform long-running worker soak tests
-5. Expand real-product validation batch coverage
-6. Add external authentication/authorization
-7. Prepare production deployment
+1. In a maintenance window, create a consistent SQLite backup, migrate to final Cloud SQL PostgreSQL, and switch a new Cloud Run revision to Secret Manager-backed `DATABASE_URL`
+2. Keep temporary Cloud Run safeguards if any online writes must happen before the migration
+3. Add UI integration for private R2 generated-video playback/download
+4. Add long-running worker soak testing with R2 enabled
+5. Implement operator reconciliation for `unknown_submission_state`
+6. Expand real-product validation batch coverage
+7. Add external authentication/authorization
+8. Prepare production deployment
 
 ## 16. Single Next Recommended Task
 
-**Use a dedicated test bucket to validate real R2 upload, read, signed download, and delete.**
+**In a maintenance window, create a consistent SQLite backup, migrate to final Cloud SQL PostgreSQL, and switch Cloud Run `DATABASE_URL` to Cloud SQL with rollback prepared.**
 
 Scope of that task:
 
-- use explicit R2 credentials supplied through environment/secret storage, not chat
-- validate one product-image object upload and public HTTPS read
-- validate one generated-video style object upload and presigned GET
-- validate delete/cleanup on the dedicated test bucket
-- verify no Ark/Seedance submit path is invoked
+- provision final PostgreSQL database
+- take a controlled SQLite backup
+- import and validate production data
+- deploy a new Cloud Run revision with Cloud SQL connection and Secret Manager-backed `DATABASE_URL`
+- validate Legacy and V3 reads/writes
+- keep production Cloud Run on its current database until rehearsal passes
 
-That is the highest-leverage next step because storage code is now covered by mocks, while production confidence depends on real R2 endpoint behavior, bucket policy, public URL configuration, and signed URL playback semantics.
+That is the highest-leverage next step because R2 has passed smoke validation, but the current Cloud Run SQLite-on-GCSFuse topology is not safe for production writes or paid-provider state.

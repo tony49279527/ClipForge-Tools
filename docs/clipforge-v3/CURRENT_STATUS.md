@@ -56,6 +56,10 @@
 - Guided V3 UI demo flow is now available on `/v3`.
 - The guided demo supports project creation, product info editing, demo image selection or image upload, mock prompt generation, mock take generation, and inline result preview.
 - The guided demo is explicitly mock-only, does not call Ark / Seedance, and keeps demo take cost at `0`.
+- The guided V3 UI demo has a 0% traffic Cloud Run tag: `https://v3-ui-demo---clipforge-tools-znaw4q4ldq-uc.a.run.app/v3`.
+- The current guided demo revision is `clipforge-tools-00115-kay` with tag `v3-ui-demo`.
+- The default production traffic remains `100%` on SQLite revision `clipforge-tools-00104-hwm`; no final PostgreSQL cutover was performed for the UI demo.
+- The deployed tag was smoke-tested through the guided mock flow: `/v3` returned `200`, `/v3/ready` returned `200`, project creation succeeded, Product Truth save succeeded, demo image creation succeeded, mock prompt generation succeeded, mock take generation succeeded, and the final result page showed `Provider: mock` with cost `0`.
 
 ## Verified Commands
 
@@ -75,6 +79,7 @@ Current recorded results:
 - Object storage tests after dual-bucket R2 support: `17 passed`
 - Object storage targeted selector after dual-bucket R2 support: `38 passed, 80 deselected`
 - Guided V3 demo UI tests: `3 passed`
+- Guided V3 demo Cloud Run tag smoke: `/v3 200`, `/v3/ready 200`, project/product/demo image/prompt/mock generate/result all passed, provider `mock`, cost `0`
 - Legacy routes: `3 passed`
 - Real R2 smoke script: `scripts/v3/test_real_r2_storage.py`
 - Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
@@ -117,6 +122,7 @@ This inspector:
 12. In a maintenance window, create a fresh consistent SQLite backup, import it into Cloud SQL PostgreSQL, validate a tagged PostgreSQL revision, and keep traffic at `0%` until all cutover gates pass.
 13. Do not run paid generation from the deployed V3 UI until database persistence is moved off GCSFuse-backed SQLite or an explicit temporary paid-test procedure is approved.
 14. Gather operator click feedback from the `/v3` guided demo page before doing a broader UI polish pass.
+15. Keep the `v3-ui-demo` tag at `0%` traffic unless a separate release step explicitly changes routing.
 
 ## Real Paid Test Protection
 

@@ -22,20 +22,24 @@ WORKER_PROCESS: subprocess.Popen | None = None
 STOPPING = threading.Event()
 
 
+def _health_status_and_body() -> tuple[int, dict]:
+    alive = WORKER_PROCESS is not None and WORKER_PROCESS.poll() is None
+    status = 200 if alive else 503
+    return status, {
+        "ok": alive,
+        "worker_alive": alive,
+        "queue_name": os.getenv("RQ_QUEUE_NAME", "clipforge"),
+        "stopping": STOPPING.is_set(),
+    }
+
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if self.path not in {"/", "/health", "/ready"}:
             self.send_response(404)
             self.end_headers()
             return
-        alive = WORKER_PROCESS is not None and WORKER_PROCESS.poll() is None
-        status = 200 if alive else 503
-        body = {
-            "ok": alive,
-            "worker_alive": alive,
-            "queue_name": os.getenv("RQ_QUEUE_NAME", "clipforge"),
-            "stopping": STOPPING.is_set(),
-        }
+        status, body = _health_status_and_body()
         payload = json.dumps(body).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")

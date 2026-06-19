@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib
 import json
 from datetime import datetime, timedelta, timezone
-from http.client import HTTPConnection
 from types import SimpleNamespace
 
 import pytest
@@ -140,20 +139,11 @@ def test_readiness_redis_failure_does_not_leak_password(monkeypatch):
 def test_worker_service_health_fails_when_worker_process_exits(monkeypatch):
     worker_service = importlib.reload(importlib.import_module("scripts.v3.run_rq_worker_service"))
     process = SimpleNamespace(poll=lambda: 1)
-    monkeypatch.setenv("PORT", "0")
     monkeypatch.setattr(worker_service, "WORKER_PROCESS", process)
-    server = worker_service._start_health_server()
-    try:
-        host, port = server.server_address
-        conn = HTTPConnection(host, port, timeout=5)
-        conn.request("GET", "/health")
-        response = conn.getresponse()
-        body = json.loads(response.read().decode("utf-8"))
-        assert response.status == 503
-        assert body["worker_alive"] is False
-    finally:
-        server.shutdown()
-        server.server_close()
+    status, body = worker_service._health_status_and_body()
+    assert status == 503
+    assert body["ok"] is False
+    assert body["worker_alive"] is False
 
 
 def test_worker_name_includes_runtime_identifier(monkeypatch):

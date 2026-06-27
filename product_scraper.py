@@ -5,11 +5,14 @@ Uses Playwright for JavaScript-heavy sites, falls back to HTTP for simple ones.
 """
 import asyncio
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -132,23 +135,23 @@ async def scrape_with_playwright(url: str) -> ProductInfo:
                         content = await meta.get_attribute("content")
                         if content:
                             info.description = content.strip()[:1500]
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("meta description fallback failed: %s", exc)
 
             # Last resort: grab page title + visible text summary
             if not info.title:
                 try:
                     info.title = (await page.title()).strip()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("page title fallback failed: %s", exc)
             if not info.description:
                 try:
                     body_text = await page.inner_text("body")
                     # Take first meaningful chunk
                     lines = [l.strip() for l in body_text.split("\n") if len(l.strip()) > 20]
                     info.description = " ".join(lines[:10])[:1500]
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("body text fallback failed: %s", exc)
 
             # --- Features / bullet points ---
             feature_selectors = [
@@ -213,8 +216,8 @@ async def scrape_with_playwright(url: str) -> ProductInfo:
                                 info.image_urls.append(src)
                             if len(info.image_urls) >= 5:
                                 break
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("image extraction failed: %s", exc)
 
             # --- Category / Breadcrumb ---
             try:
@@ -223,8 +226,8 @@ async def scrape_with_playwright(url: str) -> ProductInfo:
                     text = (await crumb.inner_text()).strip()
                     if text and len(text) > 1:
                         info.category_hints.append(text)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("breadcrumb extraction failed: %s", exc)
 
             await browser.close()
 

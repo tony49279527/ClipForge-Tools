@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from clipforge_v3 import is_v3_enabled
 from clipforge_v3.repositories import shot_repository, take_repository
 from clipforge_v3.schemas.project import V3ProjectCreate
-from clipforge_v3.services import asset_service, project_service, shot_service
+from clipforge_v3.services import asset_service, maintenance_service, project_service, shot_service
 from clipforge_v3.services.assembly_service import rebuild_final_video
 from clipforge_v3.services.generation_service import build_paid_confirmation, compile_prompt, get_video_provider_mode, lock_prompt, preflight, real_api_enabled, submit_generation
 from clipforge_v3.services.observability_service import log_event, new_request_id
@@ -235,7 +235,7 @@ def v3_index(request: Request):
             "system_overview": _system_overview(),
         }
     )
-    return templates.TemplateResponse("v3/index.html", context)
+    return templates.TemplateResponse(request, "v3/index.html", context)
 
 
 @router.post("/demo/select-project")
@@ -434,7 +434,7 @@ def v3_projects(request: Request):
     require_v3_enabled()
     context = build_context(request)
     context.update({"projects": project_service.list_projects()})
-    return templates.TemplateResponse("v3/projects.html", context)
+    return templates.TemplateResponse(request, "v3/projects.html", context)
 
 
 @router.get("/projects/new")
@@ -454,7 +454,7 @@ def v3_new_project(request: Request):
             }
         }
     )
-    return templates.TemplateResponse("v3/project_new.html", context)
+    return templates.TemplateResponse(request, "v3/project_new.html", context)
 
 
 @router.post("/projects")
@@ -525,7 +525,7 @@ def v3_project_detail(request: Request, project_id: int):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     context = build_context(request)
     context.update(detail)
-    return templates.TemplateResponse("v3/project_detail.html", context)
+    return templates.TemplateResponse(request, "v3/project_detail.html", context)
 
 
 @router.post("/projects/{project_id}/product-truth/save")

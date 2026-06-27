@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from db import get_conn, insert_row, select_all, select_one, update_row_by_id, utc_now
+from db import get_conn, insert_row, select_all, select_one, update_row_by_id, utc_now, _validate_columns
 
 from clipforge_v3.migrations import ensure_v3_schema
 
@@ -246,6 +246,7 @@ def update_prompt_version(prompt_version_id: int, fields: dict[str, Any]) -> Non
     for key in json_fields.intersection(payload):
         payload[key] = json.dumps(payload[key], ensure_ascii=False)
     keys = list(payload.keys())
+    _validate_columns(keys)
     values = [payload[key] for key in keys] + [prompt_version_id]
     assignments = ", ".join(f"{key} = ?" for key in keys)
     conn = get_conn()

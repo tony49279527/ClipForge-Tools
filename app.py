@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import uuid
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import List
@@ -77,7 +78,19 @@ def get_app_version() -> str:
     except Exception:
         return "unknown"
 
-app = FastAPI(title="ClipForge Tools")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    on_startup()
+    yield
+
+
+def on_startup() -> None:
+    ensure_runtime_dirs()
+    if is_v3_enabled():
+        run_v3_migrations()
+
+
+app = FastAPI(title="ClipForge Tools", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(v3_router)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -375,13 +388,6 @@ def publish_v2_job(job_id: int) -> None:
         update_job_fields(job_id, {"status": "failed", "workflow_stage": "failed", "current_step": "Publishing failed", "error_message": str(exc)})
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    ensure_runtime_dirs()
-    if is_v3_enabled():
-        run_v3_migrations()
-
-
 @app.get("/")
 def index(request: Request):
     sample_job = {
@@ -437,6 +443,7 @@ def index(request: Request):
         }
     )
     return templates.TemplateResponse(
+        request,
         "index.html",
         context,
     )
@@ -516,7 +523,7 @@ def jobs(request: Request):
     rows = get_all_jobs()
     context = build_common_context(request)
     context.update({"jobs": rows})
-    return templates.TemplateResponse("jobs.html", context)
+    return templates.TemplateResponse(request, "jobs.html", context)
 
 
 @app.get("/jobs/{job_id}")
@@ -527,7 +534,7 @@ def job_detail(request: Request, job_id: int):
     clips = get_clip_rows_by_job_id(job_id)
     context = build_common_context(request)
     context.update({"job": job, "clips": clips})
-    return templates.TemplateResponse("job.html", context)
+    return templates.TemplateResponse(request, "job.html", context)
 
 
 @app.get("/jobs/{job_id}/status")
@@ -618,7 +625,7 @@ def v2_index(request: Request):
             }
         }
     )
-    return templates.TemplateResponse("v2_index.html", context)
+    return templates.TemplateResponse(request, "v2_index.html", context)
 
 
 @app.post("/v2/jobs")
@@ -684,7 +691,7 @@ def v2_jobs(request: Request):
     rows = [row for row in get_all_jobs() if (row["workflow_version"] or "1.0") == "2.0"]
     context = build_common_context(request)
     context.update({"jobs": rows})
-    return templates.TemplateResponse("v2_jobs.html", context)
+    return templates.TemplateResponse(request, "v2_jobs.html", context)
 
 
 @app.get("/v2/jobs/{job_id}")
@@ -709,7 +716,7 @@ def v2_job_detail(request: Request, job_id: int):
             "usage_totals": get_usage_totals_by_stage(job_id),
         }
     )
-    return templates.TemplateResponse("v2_job.html", context)
+    return templates.TemplateResponse(request, "v2_job.html", context)
 
 
 @app.get("/v2/jobs/{job_id}/status")

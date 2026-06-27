@@ -8,6 +8,7 @@ Replaces the previous daemon-thread approach with a proper task queue:
   - Job-level and clip-level parallelism
 """
 
+import logging
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -18,6 +19,8 @@ from rq.job import Job as RQJob
 
 from clipforge_v3.services.maintenance_service import assert_writes_allowed
 from clipforge_v3.services.queue_config import resolve_redis_settings
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -53,10 +56,10 @@ def _enqueue_with_reusable_job_id(*, job_id: str, func: str, args: List[Any], jo
             return existing_job
         try:
             existing_job.delete()
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as exc:
+            logger.debug("failed to delete finished job %s: %s", job_id, exc)
+    except Exception as exc:
+        logger.debug("could not fetch existing job %s: %s", job_id, exc)
 
     return q.enqueue(
         func,

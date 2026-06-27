@@ -926,6 +926,7 @@ def update_job_fields(job_id: int, fields: Dict[str, Any]) -> None:
     payload = dict(fields)
     payload["updated_at"] = utc_now()
     keys = list(payload.keys())
+    _validate_columns(keys)
     assignments = ", ".join(f"{key} = ?" for key in keys)
     values = [payload[key] for key in keys] + [job_id]
     conn = get_conn()
@@ -941,6 +942,7 @@ def update_clip_by_job_and_index(job_id: int, clip_index: int, fields: Dict[str,
     payload = dict(fields)
     payload["updated_at"] = utc_now()
     keys = list(payload.keys())
+    _validate_columns(keys)
     assignments = ", ".join(f"{key} = ?" for key in keys)
     values = [payload[key] for key in keys] + [job_id, clip_index]
     conn = get_conn()

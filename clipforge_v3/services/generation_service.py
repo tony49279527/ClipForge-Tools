@@ -891,6 +891,24 @@ def process_generation_submission(submission_id: int) -> dict:
             submission = take_repository.get_generation_submission(submission_id) or submission
             should_call_submit = True
     if should_call_submit:
+        if get_video_provider_mode() == "ark" and not real_api_enabled():
+            take_repository.update_generation_submission(
+                submission_id,
+                {
+                    "submission_status": "unknown_submission_state",
+                    "error_json": {
+                        "code": "real_api_disabled_after_queue",
+                        "message": "Real API was disabled after this submission was queued. Paid submit is blocked to prevent charges. Re-enable real API and retry, or process manually.",
+                        "possible_charge": False,
+                        "auto_retry_disabled": True,
+                    },
+                },
+            )
+            return {
+                "submission_id": submission_id,
+                "status": "real_api_disabled",
+                "message": "Real API disabled; paid submit blocked to prevent charges.",
+            }
         try:
             provider_result = provider.submit_task(prompt_version["provider_payload_json"])
         except (requests.Timeout, requests.ConnectionError) as exc:

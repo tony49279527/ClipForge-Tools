@@ -1,0 +1,21 @@
+[project]
+name = "clipforge-tools"
+version = "3.0.0"
+requires-python = ">=3.11"
+description = "ClipForge Tools - AI product video generation platform"
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: fast unit tests with no external dependencies",
+    "integration: integration tests that may use DB/HTTP/filesystem",
+    "postgresql: tests requiring a live PostgreSQL instance",
+    "slow: tests that take a long time to run",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]

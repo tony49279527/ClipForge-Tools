@@ -20,6 +20,9 @@ Environment variables:
 - `YOUTUBE_TOKEN_PATH`: default `/secrets/youtube_token.json`
 - `YOUTUBE_ACCOUNTS_DIR`: default `./secrets/youtube_accounts`
 - `DATA_DIR`: default `./data`
+- `DATABASE_URL`: optional database URL; defaults to local SQLite and supports `postgresql+psycopg://...` for PostgreSQL
+- `POSTGRES_TEST_DATABASE_URL`: optional disposable PostgreSQL URL for integration and migration rehearsal tests; never point this at production
+- `DB_URL`: backward-compatible SQLite-only URL, for example `sqlite:///./data/clipforge.db`
 - `OUTPUTS_DIR`: default `./outputs`
 - `UPLOADS_DIR`: default `./uploads`
 - `PRICE_PER_MILLION_TOKENS_CNY`: default `46`
@@ -29,6 +32,23 @@ Environment variables:
 - `MAX_CLIP_WORKERS`: default `4`
 - `JOB_RETRIES`: default `2`
 - `JOB_RETRY_DELAY`: default `5`
+- `CLIPFORGE_V3_ENABLED`: default `false`
+- `V3_VIDEO_PROVIDER`: default `mock`
+- `V3_REAL_API_ENABLED`: default `false`
+- `V3_STORAGE_BACKEND`: default `local`; set to `r2` only when Cloudflare R2 configuration is complete
+- `R2_PUBLIC_BUCKET_NAME`: public R2 bucket for V3 product reference images
+- `R2_PRIVATE_BUCKET_NAME`: private R2 bucket for V3 generated videos
+- `R2_PUBLIC_BASE_URL`: HTTPS public base URL for product reference images
+- `R2_BUCKET_NAME`: backward-compatible single-bucket R2 configuration only
+- `SEEDANCE_PROVIDER`: default `ark`
+- `SEEDANCE_MODEL`: Seedance model ID for V3 provider adapter
+- `SEEDANCE_BASE_URL`: Seedance provider base URL
+- `SEEDANCE_DEFAULT_RESOLUTION`: default `720p`
+- `SEEDANCE_GENERATE_AUDIO`: default `true`
+- `SEEDANCE_WATERMARK`: default `false`
+- `SEEDANCE_PROMPT_MAX_CHARS`: default `2000`
+- `STORAGE_BACKEND`: default `local`
+- `V3_MAX_UPLOAD_BYTES`: default `26214400`
 
 Notes:
 
@@ -84,6 +104,7 @@ How it works:
 .
 ├── app.py
 ├── db.py
+├── clipforge_v3/
 ├── video_core.py
 ├── youtube_core.py
 ├── templates/
@@ -130,6 +151,118 @@ This smoke test covers:
 - publish confirmation gate
 - single-clip regeneration route
 
+## ClipForge 3.0
+
+ClipForge 3.0 is mounted under `/v3` and is controlled by `CLIPFORGE_V3_ENABLED=true`.
+
+Version overview:
+
+- ClipForge 1.0: original direct job flow at `/`, `/jobs`, and related status pages.
+- ClipForge 2.0: storyboard-oriented workflow at `/v2` and `/v2/jobs`.
+- ClipForge 3.0: professional product director and production console at `/v3`.
+
+V3 endpoints:
+
+- `GET /v3`
+- `GET /v3/projects`
+- `GET /v3/projects/new`
+- `POST /v3/projects`
+- `GET /v3/projects/{project_id}`
+- `GET /v3/projects/{project_id}/status`
+- `GET /v3/health`
+- `GET /v3/ready`
+
+V3 keeps ClipForge 1.0 and 2.0 intact while adding separate tables and modules for Product Truth, Assets, Shot Contracts, Prompt Versions, Takes, Reviews, Continuity States, Usage Events, Operation Events, Preflight checks, Retake Plans, and Final Assembly.
+
+Current V3 workflow steps:
+
+1. Brief
+2. Product Truth
+3. Assets
+4. Director Plan
+5. Shot Contracts
+6. Prompt Compile
+7. Draft Generation
+8. Production Generation
+9. Review
+10. Final Assembly
+11. Publish
+
+Current V3 status:
+
+- Mock Alpha: available. It exercises V3 planning, prompt compilation, mock generation, review, continuity, and final assembly without paid APIs.
+- Real API Test: available only for a manually confirmed single Seedance shot with idempotency safeguards.
+- Production: not complete. Durable object storage, long-running paid task validation, external user authentication, broader real-product validation, and production security review are still required.
+
+Current V3 capabilities:
+
+- Versioned Product Truth extraction and manual confirmation gate
+- Real product reference asset upload, role assignment, audit metadata, replacement history, and controlled local storage
+- Reference Role Map generation
+- Seedance mode routing (`T2V`, `I2V`, `V2V`, `R2V`, `FLF2V`, `edit`, `extend`)
+- Fidelity allocation with overload split warnings
+- Structured Shot Contract planning
+- Deterministic Prompt Compiler with anti-slop pass, linter, compression, payload preview, and 2000-character enforcement
+- Seedance Provider Adapter with capability validation and sanitized payload logging
+- Preflight checks with fail-open/fail-closed reference handling
+- Continuity Ledger, dependency scheduling, Take versioning, Review Studio, Retake Protocol, budget checks, and Final Assembly from selected Takes
+- Chinese operator console with English switch, cost center, blocking errors, and readiness checks
+
+V3 docs:
+
+Current V3 development status: `docs/clipforge-v3/CURRENT_STATUS.md`
+Real Provider readiness audit: `docs/clipforge-v3/REAL_PROVIDER_READINESS_AUDIT.md`
+Object storage design: `docs/clipforge-v3/OBJECT_STORAGE.md`
+Cloud Run database risk audit: `docs/clipforge-v3/CLOUD_RUN_DATABASE_RISK.md`
+PostgreSQL migration plan: `docs/clipforge-v3/POSTGRESQL_MIGRATION.md`
+Temporary database safeguards: `docs/clipforge-v3/CLOUD_RUN_TEMPORARY_DATABASE_SAFEGUARDS.md`
+Production database cutover runbook: `docs/clipforge-v3/PRODUCTION_DATABASE_CUTOVER_RUNBOOK.md`
+Redis and worker architecture: `docs/clipforge-v3/REDIS_WORKER_ARCHITECTURE.md`
+Worker restart idempotency: `docs/clipforge-v3/WORKER_RESTART_IDEMPOTENCY.md`
+Production cutover Go/No-Go review: `docs/clipforge-v3/PRODUCTION_CUTOVER_GO_NO_GO.md`
+Production PostgreSQL candidate attempt: `docs/clipforge-v3/PRODUCTION_POSTGRES_CANDIDATE.md`
+Production PostgreSQL cutover result: `docs/clipforge-v3/PRODUCTION_POSTGRES_CUTOVER_RESULT.md`
+
+- `docs/clipforge-v3/README.md`
+- `docs/clipforge-v3/user-guide-zh.md`
+- `docs/clipforge-v3/operator-guide.md`
+- `docs/clipforge-v3/deployment.md`
+- `docs/clipforge-v3/provider-configuration.md`
+- `docs/clipforge-v3/director-system.md`
+- `docs/clipforge-v3/error-codes.md`
+- `docs/clipforge-v3/evals.md`
+- `docs/clipforge-v3/security.md`
+
+Run V3 migrations and tests:
+
+```bash
+export CLIPFORGE_V3_ENABLED=true
+python3 scripts/v3/migrate_v3.py
+python3 scripts/test_v3_workflow_smoke.py
+python3 evaluation/run_evals.py
+python3 -m pytest -q
+```
+
+V3 real Seedance safeguards:
+
+- Default mode is `V3_VIDEO_PROVIDER=mock` and `V3_REAL_API_ENABLED=false`.
+- `ARK_API_KEY` alone does not trigger a paid call.
+- Real Ark submission requires provider mode, real API gate, backend paid confirmation token, and an idempotency reservation.
+- HTTP timeout is recorded as `unknown_submission_state`; operators must inspect provider state before retrying.
+
+Manual single-shot real API test:
+
+```bash
+export CLIPFORGE_V3_ENABLED=true
+export V3_VIDEO_PROVIDER=ark
+export V3_REAL_API_ENABLED=true
+export V3_REAL_API_TEST_CONFIRM=I_UNDERSTAND_THIS_COSTS_MONEY
+export ARK_API_KEY="..."
+python3 scripts/v3/test_real_seedance_single_shot.py
+```
+
+V3 still requires external configuration for real paid video generation and publishing. CI uses mocks and local files only.
+
 ## Docker Local Test
 
 ```bash
@@ -165,7 +298,7 @@ This repo is prepared for Cloud Run:
 Important Cloud Run limits and recommendations:
 
 1. Cloud Run request timeout defaults to 300 seconds. For this app, set the Cloud Run timeout to `3600` seconds.
-2. Cloud Run local filesystem is temporary. `outputs/`, `uploads/`, and `data/` are acceptable for V1 testing only. Production should move to Cloud Storage and Cloud SQL.
+2. Cloud Run local filesystem is temporary. `outputs/`, `uploads/`, and `data/` are acceptable for local/V1 testing only. V3 production now uses R2 object storage and Cloud SQL PostgreSQL; do not reintroduce production writes against SQLite on a GCSFuse mount.
 3. Set concurrency to `1` for the web service because Seedance generation and FFmpeg stitching are heavy tasks.
 4. Recommended resources: memory `2GiB`, CPU `2`.
 5. FFmpeg is already installed in the Dockerfile.
@@ -227,10 +360,15 @@ Also note:
 Do not commit:
 
 - `ARK_API_KEY`
+- `SEEDANCE_API_KEY`
 - `client_secret.json`
 - `youtube_token.json`
 - generated video files
 - SQLite database files
+- `data/`
+- `uploads/`
+- `outputs/`
+- provider payloads or responses containing private URLs or credentials
 
 ## Development Notes
 

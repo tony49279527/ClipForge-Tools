@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -11,12 +12,16 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field, validator
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Header
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import env_bootstrap  # noqa: F401
 
+from clipforge_v3 import is_v3_enabled
+from clipforge_v3.migrations import run_v3_migrations
+from clipforge_v3.router import router as v3_router
+from clipforge_v3.services.maintenance_service import is_maintenance_mode, maintenance_payload
 from db import (
     create_clip_records,
     create_job,
@@ -81,9 +86,35 @@ def get_app_version() -> str:
     except Exception:
         return "unknown"
 
-app = FastAPI(title="ClipForge Tools")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    on_startup()
+    yield
+
+
+def on_startup() -> None:
+    ensure_runtime_dirs()
+    if is_v3_enabled():
+        run_v3_migrations()
+
+
+app = FastAPI(title="ClipForge Tools", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.include_router(v3_router)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+WRITE_LIKE_GET_PREFIXES = ("/auth/", "/oauth")
+
+
+@app.middleware("http")
+async def maintenance_write_freeze(request: Request, call_next):
+    path = request.url.path
+    write_like_get = request.method.upper() == "GET" and path.startswith(WRITE_LIKE_GET_PREFIXES)
+    if is_maintenance_mode() and (request.method.upper() in WRITE_METHODS or write_like_get):
+        return JSONResponse(status_code=503, content=maintenance_payload())
+    return await call_next(request)
 
 
 def resolve_lang(request: Request) -> str:
@@ -103,6 +134,7 @@ def build_common_context(request: Request) -> dict:
         "lang_switch_en": str(request.url.include_query_params(lang="en")),
         "lang_switch_zh": str(request.url.include_query_params(lang="zh")),
         "app_version": get_app_version(),
+        "clipforge_v3_enabled": is_v3_enabled(),
         "youtube_accounts": youtube_accounts,
         "has_youtube_accounts": len(youtube_accounts) > 0,
         "status_label": lambda value: status_label(value, is_zh),
@@ -540,11 +572,6 @@ def publish_v2_job(job_id: int) -> None:
         update_job_fields(job_id, {"status": "failed", "workflow_stage": "failed", "current_step": "Publishing failed", "error_message": str(exc)})
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    ensure_runtime_dirs()
-
-
 @app.get("/")
 def index(request: Request):
     sample_job = {
@@ -599,6 +626,7 @@ def index(request: Request):
         }
     )
     return templates.TemplateResponse(
+        request,
         "index.html",
         context,
     )
@@ -678,7 +706,7 @@ def jobs(request: Request):
     rows = get_all_jobs()
     context = build_common_context(request)
     context.update({"jobs": rows})
-    return templates.TemplateResponse("jobs.html", context)
+    return templates.TemplateResponse(request, "jobs.html", context)
 
 
 @app.get("/jobs/{job_id}")
@@ -689,7 +717,7 @@ def job_detail(request: Request, job_id: int):
     clips = get_clip_rows_by_job_id(job_id)
     context = build_common_context(request)
     context.update({"job": job, "clips": clips})
-    return templates.TemplateResponse("job.html", context)
+    return templates.TemplateResponse(request, "job.html", context)
 
 
 @app.get("/jobs/{job_id}/status")
@@ -787,7 +815,7 @@ def v2_index(request: Request):
             }
         }
     )
-    return templates.TemplateResponse("v2_index.html", context)
+    return templates.TemplateResponse(request, "v2_index.html", context)
 
 
 @app.post("/v2/jobs")
@@ -853,7 +881,7 @@ def v2_jobs(request: Request):
     rows = [row for row in get_all_jobs() if (row["workflow_version"] or "1.0") == "2.0"]
     context = build_common_context(request)
     context.update({"jobs": rows})
-    return templates.TemplateResponse("v2_jobs.html", context)
+    return templates.TemplateResponse(request, "v2_jobs.html", context)
 
 
 @app.get("/v2/jobs/{job_id}")
@@ -878,7 +906,7 @@ def v2_job_detail(request: Request, job_id: int):
             "usage_totals": get_usage_totals_by_stage(job_id),
         }
     )
-    return templates.TemplateResponse("v2_job.html", context)
+    return templates.TemplateResponse(request, "v2_job.html", context)
 
 
 @app.get("/v2/jobs/{job_id}/status")

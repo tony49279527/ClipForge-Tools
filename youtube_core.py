@@ -163,7 +163,7 @@ def list_youtube_accounts() -> List[Dict[str, str]]:
             if meta_path.exists():
                 try:
                     meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                except:
+                except Exception:
                     pass
             accounts.append({
                 "account_id": meta.get("account_id") or account_dir.name,

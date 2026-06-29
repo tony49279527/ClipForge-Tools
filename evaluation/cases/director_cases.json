@@ -1,0 +1,202 @@
+[
+  {
+    "id": "ambiguous_no_final_prompt",
+    "input": "Make a cool product video for this tool.",
+    "expected_mode": "blocked",
+    "expected_shot_count_range": [0, 0],
+    "required_constraints": ["requires_product_truth"],
+    "forbidden_output": ["final seedance prompt"],
+    "expected_warnings": ["ambiguous_brief"],
+    "expected_error_codes": ["R006"]
+  },
+  {
+    "id": "i2v_no_full_static_redescription",
+    "input": "Use a real identity image for a cotton buffing wheel.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [1, 4],
+    "required_constraints": ["preserve real product identity"],
+    "forbidden_output": ["redesign the product", "invented color"],
+    "expected_warnings": [],
+    "expected_error_codes": []
+  },
+  {
+    "id": "r2v_role_map",
+    "input": "Image controls product identity, video controls polishing motion only.",
+    "expected_mode": "R2V",
+    "expected_shot_count_range": [1, 4],
+    "required_constraints": ["Video1 controls polishing motion only", "Do not transfer product from Video1"],
+    "forbidden_output": ["video controls product identity"],
+    "expected_warnings": [],
+    "expected_error_codes": []
+  },
+  {
+    "id": "product_truth_conflict_blocks",
+    "input": "The wheel is cotton but prompt asks for felt grinding stone.",
+    "expected_mode": "blocked",
+    "expected_shot_count_range": [0, 2],
+    "required_constraints": ["product truth conflict blocks generation"],
+    "forbidden_output": ["felt grinding stone"],
+    "expected_warnings": ["truth_conflict"],
+    "expected_error_codes": ["R005"]
+  },
+  {
+    "id": "installation_and_use_split",
+    "input": "In 5 seconds install the wheel, start machine, polish metal, show final result.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [2, 4],
+    "required_constraints": ["split installation and polishing"],
+    "forbidden_output": ["single 5 second all-in-one shot"],
+    "expected_warnings": ["too_many_actions"],
+    "expected_error_codes": ["R003"]
+  },
+  {
+    "id": "single_primary_action",
+    "input": "Show product closeup and installation in one shot.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [2, 3],
+    "required_constraints": ["one primary visible action"],
+    "forbidden_output": ["two primary actions"],
+    "expected_warnings": ["split_recommended"],
+    "expected_error_codes": ["R003"]
+  },
+  {
+    "id": "single_camera_move",
+    "input": "Locked macro, orbit, crane up, then dolly in.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [1, 2],
+    "required_constraints": ["one primary camera movement"],
+    "forbidden_output": ["orbit and crane and dolly"],
+    "expected_warnings": ["camera_overload"],
+    "expected_error_codes": ["R002"]
+  },
+  {
+    "id": "prompt_under_2000",
+    "input": "Compile a Seedance prompt from a valid shot contract.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [1, 1],
+    "required_constraints": ["len(prompt) <= 2000"],
+    "forbidden_output": ["silent truncation"],
+    "expected_warnings": [],
+    "expected_error_codes": []
+  },
+  {
+    "id": "identity_asset_fail_closed",
+    "input": "Product identity image is missing or inaccessible.",
+    "expected_mode": "blocked",
+    "expected_shot_count_range": [0, 1],
+    "required_constraints": ["fail closed for product identity"],
+    "forbidden_output": ["continue without product image"],
+    "expected_warnings": ["missing_identity_asset"],
+    "expected_error_codes": ["R004"]
+  },
+  {
+    "id": "identity_over_scene_density",
+    "input": "Exact product identity in a complex crowded workshop.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [1, 3],
+    "required_constraints": ["primary_spend product_identity"],
+    "forbidden_output": ["primary_spend scene_density"],
+    "expected_warnings": ["scene_economized"],
+    "expected_error_codes": []
+  },
+  {
+    "id": "continuity_dependency",
+    "input": "S03 continues immediately after S02 installation finishes.",
+    "expected_mode": "FLF2V",
+    "expected_shot_count_range": [2, 3],
+    "required_constraints": ["depends_on_shot_id S02"],
+    "forbidden_output": ["parallel without dependency"],
+    "expected_warnings": [],
+    "expected_error_codes": []
+  },
+  {
+    "id": "repeat_error_rewrite",
+    "input": "M001 repeats in two takes.",
+    "expected_mode": "REWRITE",
+    "expected_shot_count_range": [1, 1],
+    "required_constraints": ["stop reroll after repeated error"],
+    "forbidden_output": ["reroll again"],
+    "expected_warnings": ["systematic_error"],
+    "expected_error_codes": ["M001"]
+  },
+  {
+    "id": "single_variable_retake",
+    "input": "Retake should strengthen spindle-through-hole relation only.",
+    "expected_mode": "REWRITE",
+    "expected_shot_count_range": [1, 1],
+    "required_constraints": ["changed_variable one_prompt_clause"],
+    "forbidden_output": ["change camera and mode and asset together"],
+    "expected_warnings": [],
+    "expected_error_codes": ["M001"]
+  },
+  {
+    "id": "dense_text_post",
+    "input": "Generate readable model number, price, warranty, CTA and QR code in video.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [1, 2],
+    "required_constraints": ["send dense text to post"],
+    "forbidden_output": ["video model generates readable small text"],
+    "expected_warnings": ["text_in_post"],
+    "expected_error_codes": []
+  },
+  {
+    "id": "recommend_real_shoot",
+    "input": "Guarantee exact hidden internal ratchet mechanism operating under load.",
+    "expected_mode": "blocked",
+    "expected_shot_count_range": [0, 1],
+    "required_constraints": ["recommend real shoot when mechanical truth cannot be guaranteed"],
+    "forbidden_output": ["infinite regenerate"],
+    "expected_warnings": ["real_shoot_recommended"],
+    "expected_error_codes": ["R005"]
+  },
+  {
+    "id": "buffing_wheel_install_relation",
+    "input": "6-inch stitched cotton buffing wheel installed on spindle with washer and nut.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [2, 4],
+    "required_constraints": ["spindle through center hole", "flat washer", "nut"],
+    "forbidden_output": ["spindle beside wheel"],
+    "expected_warnings": [],
+    "expected_error_codes": []
+  },
+  {
+    "id": "buffing_wheel_work_surface",
+    "input": "Buffing wheel polishes metal.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [1, 3],
+    "required_constraints": ["outer cotton circumference contacts workpiece"],
+    "forbidden_output": ["flat face grinds workpiece"],
+    "expected_warnings": [],
+    "expected_error_codes": []
+  },
+  {
+    "id": "drill_bit_workpiece_relation",
+    "input": "Drill driver with chuck, bit and workpiece.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [2, 4],
+    "required_constraints": ["chuck holds bit", "bit contacts workpiece"],
+    "forbidden_output": ["bit floating"],
+    "expected_warnings": [],
+    "expected_error_codes": []
+  },
+  {
+    "id": "wrench_force_contact",
+    "input": "Wrench loosens hex nut.",
+    "expected_mode": "I2V",
+    "expected_shot_count_range": [1, 3],
+    "required_constraints": ["jaw contacts flat sides", "force around nut axis"],
+    "forbidden_output": ["jaw on corner only"],
+    "expected_warnings": [],
+    "expected_error_codes": []
+  },
+  {
+    "id": "conflicting_product_images",
+    "input": "Two product images show different center hole shape and material.",
+    "expected_mode": "blocked",
+    "expected_shot_count_range": [0, 2],
+    "required_constraints": ["asset conflict warning"],
+    "forbidden_output": ["choose one silently"],
+    "expected_warnings": ["asset_conflict"],
+    "expected_error_codes": ["R004"]
+  }
+]

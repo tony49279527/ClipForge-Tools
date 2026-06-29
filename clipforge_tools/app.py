@@ -1,6 +1,7 @@
 import json
 import shutil
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List
 
@@ -25,7 +26,13 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 
 ALLOWED_UPLOAD_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
-app = FastAPI(title="ClipForge Tools")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ensure_runtime_dirs()
+    yield
+
+
+app = FastAPI(title="ClipForge Tools", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -62,14 +69,10 @@ def save_uploaded_files(job_id: int, files: List[UploadFile]) -> List[str]:
     return saved_paths
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    ensure_runtime_dirs()
-
-
 @app.get("/")
 def index(request: Request):
     return templates.TemplateResponse(
+        request,
         "index.html",
         {
             "request": request,
@@ -148,7 +151,7 @@ async def create_job_view(
 @app.get("/jobs")
 def jobs(request: Request):
     rows = get_all_jobs()
-    return templates.TemplateResponse("jobs.html", {"request": request, "jobs": rows})
+    return templates.TemplateResponse(request, "jobs.html", {"jobs": rows})
 
 
 @app.get("/jobs/{job_id}")
@@ -157,7 +160,7 @@ def job_detail(request: Request, job_id: int):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     clips = get_clip_rows_by_job_id(job_id)
-    return templates.TemplateResponse("job.html", {"request": request, "job": job, "clips": clips})
+    return templates.TemplateResponse(request, "job.html", {"job": job, "clips": clips})
 
 
 @app.get("/jobs/{job_id}/status")

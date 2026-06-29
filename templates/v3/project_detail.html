@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+{% block title %}{{ project["project_name"] }} · ClipForge 3.0{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/v3/style.css">
+<section class="v3-console">
+    <header class="v3-console-top">
+        <div>
+            <div class="v3-eyebrow">ClipForge 3.0 · {{ app_version }}</div>
+            <h1>{{ project["project_name"] }}</h1>
+            <p>{{ project["product_name"] }} · {{ project["product_category"] }} · {{ project["target_platform"] }}</p>
+        </div>
+        <div class="v3-top-status">
+            <a class="v3-link" href="{{ lang_switch_en }}">EN</a>
+            <a class="v3-link" href="{{ lang_switch_zh }}">中文</a>
+            <span class="v3-badge">{{ project["project_status"] }}</span>
+            <span class="v3-badge">{{ project["current_stage"] }}</span>
+            <span class="v3-badge">Provider: {{ v3_video_provider }}{% if v3_video_provider == "ark" and v3_real_api_enabled %} · REAL API ENABLED{% else %} · Mock/locked{% endif %}</span>
+            <span class="v3-badge">最后更新 {{ project["updated_at"] }}</span>
+        </div>
+    </header>
+
+    <div class="v3-layout">
+        <aside class="v3-sidebar">
+            <h2>项目导航</h2>
+            <a href="/v3/projects">全部项目</a>
+            <a href="/v3/projects/new">新建项目</a>
+            <a href="/v3/ready">系统就绪检查</a>
+            <a href="/v3/projects/{{ project['id'] }}/publish-gate">发布闸门 API</a>
+            <h3>预算</h3>
+            <div class="v3-meter"><span style="width: {{ cost_center['budget_percent'] or 0 }}%"></span></div>
+            <p>{{ cost_center["currency"] }} {{ "%.2f"|format(cost_center["project_total_cost"] or 0) }} / {{ project["max_cost_cny"] or "未设置" }}</p>
+            <p class="v3-muted">价格状态：{{ cost_center["price_source"] }} · {{ cost_center["price_updated_at"] }}</p>
+            <h3>风险</h3>
+            <strong>{{ blocking_errors|length }}</strong> blocking errors
+        </aside>
+
+        <main class="v3-main">
+            <section class="v3-panel">
+                <h2>工作流 Stepper</h2>
+                <div class="v3-steps">
+                    {% for step in steps %}
+                    <div class="v3-step v3-step-{{ step.state }}">
+                        <strong>{{ step.label_zh if is_zh else step.label }}</strong>
+                        <span>{{ step.state }}</span>
+                        <small>{{ step.count }} 条{% if step.reason %} · {{ step.reason }}{% endif %}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="v3-panel" id="brief">
+                <h2>Brief · 项目简报</h2>
+                <div class="v3-kpi-grid">
+                    <div><strong>市场</strong><span>{{ project["target_market"] }}</span></div>
+                    <div><strong>受众</strong><span>{{ project["target_audience"] }}</span></div>
+                    <div><strong>比例</strong><span>{{ project["aspect_ratio"] }}</span></div>
+                    <div><strong>总时长</strong><span>{{ project["total_duration"] }}s</span></div>
+                    <div><strong>单镜头</strong><span>{{ project["default_clip_duration"] }}s</span></div>
+                    <div><strong>分辨率</strong><span>{{ project["resolution"] }}</span></div>
+                </div>
+            </section>
+
+            <section class="v3-panel" id="truth">
+                <div class="v3-panel-head">
+                    <h2>Product Truth · 产品事实</h2>
+                    {% if product_truth and product_truth["user_approved"] %}<span class="v3-good">已确认</span>{% else %}<span class="v3-warn">待确认</span>{% endif %}
+                </div>
+                <form action="/v3/projects/{{ project['id'] }}/product-truth/save" method="post" class="v3-form">
+                    <label class="v3-span-2">产品说明<textarea name="source_description" rows="4">{{ product_truth["source_description"] if product_truth else project["parts_summary"] }}</textarea></label>
+                    <label>产品 URL<input type="text" name="product_url" value="{{ project['product_url'] }}"></label>
+                    <label>尺寸<input type="text" name="dimensions_input" value="{{ project['dimensions_input'] }}"></label>
+                    <label>材质<input type="text" name="materials_input" value="{{ project['materials_input'] }}"></label>
+                    <label>包装数量<input type="text" name="package_quantity" value="{{ project['package_quantity'] }}"></label>
+                    <label>工作表面<input type="text" name="working_surface_input" value="{{ project['working_surface_input'] }}"></label>
+                    <label class="v3-span-2">零件组成<textarea name="parts_summary" rows="2">{{ project["parts_summary"] }}</textarea></label>
+                    <label class="v3-span-2">安装方式<textarea name="installation_method" rows="2">{{ project["installation_method"] }}</textarea></label>
+                    <label>适用对象<input type="text" name="intended_for" value="{{ project['intended_for'] }}"></label>
+                    <label>不适用对象<input type="text" name="not_for" value="{{ project['not_for'] }}"></label>
+                    <label class="v3-span-2">安全规则<textarea name="safety_notes" rows="2">{{ project["safety_notes"] }}</textarea></label>
+                    <div class="v3-span-2 v3-actions"><button class="btn ghost" type="submit">保存新版本</button></div>
+                </form>
+                {% if product_truth %}
+                <details open class="v3-inspector"><summary>结构化 Product Truth JSON</summary><pre>{{ product_truth["product_truth_json"] | tojson(indent=2) }}</pre></details>
+                <form action="/v3/projects/{{ project['id'] }}/product-truth/confirm" method="post"><button class="btn" type="submit">确认 Product Truth</button></form>
+                {% endif %}
+                <div class="v3-version-row">
+                    {% for version in product_truth_versions %}
+                    <span>v{{ version["version"] }} approved={{ version["user_approved"] }} invalidates={{ version["invalidates_shots"] }}</span>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="v3-panel" id="assets">
+                <h2>Reference Assets · 参考素材库</h2>
+                <form action="/v3/projects/{{ project['id'] }}/assets" method="post" enctype="multipart/form-data" class="v3-form">
+                    <label>主职责<select name="primary_role">
+                        {% for role in ["product_identity","product_geometry","material_detail","installation","first_frame","last_frame","environment","style","motion","camera","timing","audio","continuity_anchor","fact_evidence"] %}
+                        <option value="{{ role }}">{{ role }}</option>
+                        {% endfor %}
+                    </select></label>
+                    <label>副职责<input type="text" name="secondary_role" placeholder="optional"></label>
+                    <label>必须继承<input type="text" name="must_transfer" placeholder="geometry, center hole"></label>
+                    <label>不得继承<input type="text" name="must_not_transfer" placeholder="background, watermark"></label>
+                    <label>适用镜头<input type="text" name="applies_to_shots" placeholder="S01,S02"></label>
+                    <label>文件<input type="file" name="asset_file" accept="image/*,video/*,audio/*,.pdf,.txt" required></label>
+                    <label><input type="checkbox" name="is_identity_anchor" value="true"> 核心身份锚点</label>
+                    <label><input type="checkbox" name="user_approved" value="true"> 用户已确认</label>
+                    <div class="v3-span-2"><button class="btn" type="submit">上传素材</button></div>
+                </form>
+                <div class="v3-asset-grid">
+                    {% for asset in assets %}
+                    <article class="v3-asset-card">
+                        {% if asset["asset_type"] == "image" and asset["access_url"] %}<img src="{{ asset['access_url'] }}" alt="{{ asset['original_filename'] }}">{% endif %}
+                        {% if asset["asset_type"] == "video" and asset["access_url"] %}<video src="{{ asset['access_url'] }}" controls></video>{% endif %}
+                        <strong>#{{ asset["id"] }} {{ asset["primary_role"] }}</strong>
+                        <span>{{ asset["asset_type"] }} · {{ asset["mime_type"] }}</span>
+                        <span>anchor={{ asset["is_identity_anchor"] }} · approved={{ asset["user_approved"] }}</span>
+                        <span>{{ asset["metadata_json"].get("width", "-") }}x{{ asset["metadata_json"].get("height", "-") }} · {{ asset["metadata_json"].get("size_bytes", "-") }} bytes</span>
+                        {% for warning in asset["audit_report_json"].get("warnings", []) %}<em>{{ warning["code"] }}: {{ warning["message"] }}</em>{% endfor %}
+                        <form action="/v3/projects/{{ project['id'] }}/assets/{{ asset['id'] }}/delete" method="post"><button class="btn ghost" type="submit">删除但保留审计</button></form>
+                        <form action="/v3/projects/{{ project['id'] }}/assets/{{ asset['id'] }}/replace" method="post" enctype="multipart/form-data" class="v3-mini-form">
+                            <input type="hidden" name="primary_role" value="{{ asset['primary_role'] }}">
+                            <input type="hidden" name="secondary_role" value="{{ asset['secondary_role'] or '' }}">
+                            <input type="hidden" name="must_transfer" value="{{ asset['must_transfer_json']|join(',') }}">
+                            <input type="hidden" name="must_not_transfer" value="{{ asset['must_not_transfer_json']|join(',') }}">
+                            <input type="hidden" name="applies_to_shots" value="{{ asset['applies_to_shots_json']|join(',') }}">
+                            <input type="hidden" name="is_identity_anchor" value="{{ asset['is_identity_anchor'] }}">
+                            <input type="file" name="asset_file" required>
+                            <button class="btn ghost" type="submit">替换素材</button>
+                        </form>
+                    </article>
+                    {% else %}
+                    <p class="v3-empty">尚未上传素材。产品身份图缺失时 I2V/R2V 会被阻止。</p>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="v3-panel" id="director">
+                <h2>Director Plan · 导演计划</h2>
+                <div class="v3-actions">
+                    <form action="/v3/projects/{{ project['id'] }}/director-plan/generate" method="post"><button class="btn" type="submit">生成 Director Plan</button></form>
+                    <form action="/v3/projects/{{ project['id'] }}/shots/confirm-all" method="post"><button class="btn ghost" type="submit">确认全部 Shot Contracts</button></form>
+                    <form action="/v3/projects/{{ project['id'] }}/shots/add" method="post"><button class="btn ghost" type="submit">添加镜头</button></form>
+                </div>
+                <h3>依赖调度</h3>
+                <div class="v3-schedule">
+                    {% for item in schedule %}
+                    <div><strong>{{ item["shot_id"] }}</strong><span>{{ item["status"] }}</span><span>deps={{ item["dependencies"] or "-" }}</span><span>waiting={{ item["waiting_on"] or "-" }}</span></div>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="v3-panel" id="shots">
+                <h2>Shot Board · 镜头板</h2>
+                {% for shot in shots %}
+                <article class="v3-shot-card">
+                    <div class="v3-shot-top">
+                        <strong>{{ shot["shot_id"] }}</strong>
+                        <span>{{ shot["purpose"] }}</span>
+                        <span>{{ shot["duration"] }}s</span>
+                        <span>{{ shot["mode"] }}</span>
+                        <span>{{ shot["status"] }}</span>
+                    </div>
+                    <div class="v3-shot-meta">
+                        <div>Fidelity: {{ shot["primary_spend"] }} / {{ shot["secondary_spend"] or "-" }}</div>
+                        <div>依赖: {{ shot["depends_on_shot_id"] or "-" }}</div>
+                        <div>选定 Take: {{ shot["selected_take_id"] or "-" }}</div>
+                        <div>风险: {{ shot["risk_codes_json"]|join(", ") }}</div>
+                    </div>
+                    <details class="v3-inspector"><summary>Reference Role Map / Mode / Fidelity</summary><pre>{{ shot["reference_roles_json"] | tojson(indent=2) }}</pre><pre>{{ shot["mode_decision_json"] | tojson(indent=2) }}</pre><pre>{{ shot["fidelity_json"] | tojson(indent=2) }}</pre></details>
+                    <form action="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/update" method="post" class="v3-form">
+                        <label>Purpose<input type="text" name="purpose" value="{{ shot['purpose'] }}"></label>
+                        <label>Subject Action<input type="text" name="subject_action" value="{{ shot['subject_action'] }}"></label>
+                        <label class="v3-span-2">Single Visible Beat<input type="text" name="single_visible_beat" value="{{ shot['single_visible_beat'] }}"></label>
+                        <div class="v3-span-2 v3-actions">
+                            <button class="btn ghost" type="submit">保存镜头</button>
+                            <button class="btn ghost" formaction="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/move-up" formmethod="post">上移</button>
+                            <button class="btn ghost" formaction="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/move-down" formmethod="post">下移</button>
+                            <button class="btn ghost" formaction="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/copy" formmethod="post">复制</button>
+                            <button class="btn ghost" formaction="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/split" formmethod="post">拆分</button>
+                            <button class="btn ghost" formaction="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/disable" formmethod="post">禁用</button>
+                            <button class="btn danger" formaction="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/delete" formmethod="post">删除</button>
+                        </div>
+                    </form>
+                    <form action="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/compile" method="post"><button class="btn" type="submit">Compile Prompt</button></form>
+                    {% for prompt in prompt_versions if prompt["shot_id"] == shot["id"] %}
+                    <details class="v3-inspector" {% if loop.first %}open{% endif %}>
+                        <summary>Prompt Inspector · v{{ prompt["version"] }} · {{ prompt["prompt_char_count"] }} chars · allow={{ prompt["allow_submit"] }}</summary>
+                        <h4>Raw Draft</h4><pre>{{ prompt["raw_draft_prompt"] }}</pre>
+                        <h4>Anti-slop</h4><pre>{{ prompt["anti_slop_prompt"] }}</pre>
+                        <h4>Compressed / Final</h4><pre>{{ prompt["compressed_prompt"] or prompt["prompt_text"] }}</pre>
+                        <h4>删除记录</h4><pre>{{ prompt["removed_items_json"] | tojson(indent=2) }}</pre>
+                        <h4>Linter / Validation</h4><pre>{{ prompt["validation_result_json"] | tojson(indent=2) }}</pre>
+                        <h4>Payload Preview</h4><pre>{{ prompt["provider_payload_json"] | tojson(indent=2) }}</pre>
+                        <div class="v3-actions">
+                            <form action="/v3/projects/{{ project['id'] }}/prompts/{{ prompt['id'] }}/lock" method="post"><button class="btn ghost" type="submit">锁定 Prompt</button></form>
+                            <form action="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/preflight/draft" method="post"><input type="hidden" name="prompt_version_id" value="{{ prompt['id'] }}"><button class="btn ghost" type="submit">Preflight Draft</button></form>
+                            <form action="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/submit/draft" method="post"><input type="hidden" name="prompt_version_id" value="{{ prompt['id'] }}"><button class="btn ghost" type="submit">提交 Draft</button></form>
+                            <form action="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/preflight/production" method="post"><input type="hidden" name="prompt_version_id" value="{{ prompt['id'] }}"><button class="btn ghost" type="submit">Preflight Production</button></form>
+                            <form action="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/submit/production" method="post"><input type="hidden" name="prompt_version_id" value="{{ prompt['id'] }}"><button class="btn ghost" type="submit">提交 Production</button></form>
+                            {% if v3_video_provider == "ark" and v3_real_api_enabled %}
+                            <form action="/v3/projects/{{ project['id'] }}/shots/{{ shot['id'] }}/submit-real/{{ 'production' if prompt['locked_by_user'] else 'draft' }}" method="post" class="v3-paid-confirm">
+                                <input type="hidden" name="prompt_version_id" value="{{ prompt['id'] }}">
+                                <label><input type="checkbox" name="paid_confirmed" value="true"> I confirm this is a real paid Seedance generation.</label>
+                                <input type="text" name="paid_confirmation_token" placeholder="idempotency key prefix from /paid-confirmation API">
+                                <button class="btn danger" type="submit">提交真实 Ark 付费任务</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </details>
+                    {% endfor %}
+                </article>
+                {% else %}
+                <p class="v3-empty">尚无 Shot Contract。请先确认 Product Truth 并生成 Director Plan。</p>
+                {% endfor %}
+            </section>
+
+            <section class="v3-panel" id="takes">
+                <h2>Take Review Studio · Take 审核</h2>
+                {% if takes|length >= 2 %}
+                <div class="v3-compare">
+                    {% for take in takes[:2] %}
+                    <div>
+                        <strong>{{ take["business_shot_id"] }} Take {{ take["take_number"] }}</strong>
+                        {% if take["local_path"] %}<video src="{{ take['local_path'] }}" controls></video>{% endif %}
+                        <p>Prompt {{ take["prompt_version_id"] }} · Cost {{ take["estimated_cost"] }} · selected={{ take["selected_by_user"] }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% for take in takes %}
+                <article class="v3-shot-card">
+                    <div class="v3-shot-top"><strong>{{ take["business_shot_id"] }} Take {{ take["take_number"] }}</strong><span>{{ take["status"] }}</span><span>{{ take["tier"] }}</span><span>selected={{ take["selected_by_user"] }}</span></div>
+                    <div class="v3-shot-meta"><div>Prompt: {{ take["prompt_version_id"] }}</div><div>Changed: {{ take["changed_variable"] or "-" }}</div><div>Cost: {{ take["estimated_cost"] }}</div><div>Uncontrolled: {{ take["uncontrolled_revision"] }}</div></div>
+                    <div class="v3-frame-row"><span>First: {{ take["first_frame_path"] or "-" }}</span><span>Last: {{ take["last_frame_path"] or "-" }}</span></div>
+                    <div class="v3-actions">
+                        <form action="/v3/projects/{{ project['id'] }}/takes/{{ take['id'] }}/select" method="post"><button class="btn ghost" type="submit">Select Take</button></form>
+                        <form action="/v3/projects/{{ project['id'] }}/shots/{{ take['shot_id'] }}/clear-selected" method="post"><button class="btn ghost" type="submit">取消选择</button></form>
+                        <form action="/v3/projects/{{ project['id'] }}/takes/{{ take['id'] }}/delete-local" method="post"><button class="btn ghost" type="submit">删除本地文件</button></form>
+                        <form action="/v3/projects/{{ project['id'] }}/takes/{{ take['id'] }}/restore" method="post"><button class="btn ghost" type="submit">恢复历史 Take</button></form>
+                        <form action="/v3/projects/{{ project['id'] }}/takes/{{ take['id'] }}/plan-retake" method="post"><button class="btn ghost" type="submit">Retake Planner</button></form>
+                    </div>
+                    <form action="/v3/projects/{{ project['id'] }}/takes/{{ take['id'] }}/review" method="post" class="v3-form">
+                        <label>Verdict<select name="verdict"><option value="KEEP">KEEP</option><option value="FIX_IN_POST">FIX_IN_POST</option><option value="EDIT">EDIT</option><option value="REROLL">REROLL</option><option value="REWRITE">REWRITE</option></select></label>
+                        <label>Product<input type="number" name="product_identity_score" min="0" max="10" value="8"></label>
+                        <label>Mechanical<input type="number" name="mechanical_accuracy_score" min="0" max="10" value="8"></label>
+                        <label>Material<input type="number" name="material_accuracy_score" min="0" max="10" value="8"></label>
+                        <label>Motion<input type="number" name="motion_realism_score" min="0" max="10" value="7"></label>
+                        <label>Camera<input type="number" name="camera_execution_score" min="0" max="10" value="7"></label>
+                        <label>Continuity<input type="number" name="continuity_score" min="0" max="10" value="7"></label>
+                        <label>Commercial<input type="number" name="commercial_usability_score" min="0" max="10" value="7"></label>
+                        <label>Safety<select name="safety"><option value="pass">pass</option><option value="fail">fail</option></select></label>
+                        <label class="v3-span-2">错误码<input type="text" name="error_codes_json" placeholder="M001,M002,A001"></label>
+                        <label class="v3-span-2">备注<textarea name="reviewer_notes" rows="2"></textarea></label>
+                        <label class="v3-span-2">下一步<input type="text" name="next_action" value="按 Verdict 进入下一步"></label>
+                        <div class="v3-span-2"><button class="btn ghost" type="submit">保存审核</button></div>
+                    </form>
+                </article>
+                {% else %}
+                <p class="v3-empty">尚无 Take。</p>
+                {% endfor %}
+            </section>
+
+            <section class="v3-panel" id="assembly">
+                <h2>Final Assembly · 最终拼接</h2>
+                <form action="/v3/projects/{{ project['id'] }}/final-assembly/rebuild" method="post"><button class="btn" type="submit">Rebuild Final Video</button></form>
+                {% for assembly in final_assemblies %}
+                <details class="v3-inspector" open><summary>Assembly v{{ assembly["version"] }} invalidated={{ assembly["invalidated"] }}</summary><pre>{{ assembly | tojson(indent=2) }}</pre></details>
+                {% else %}
+                <p class="v3-empty">所有必需镜头选择 Take 后才能拼接。</p>
+                {% endfor %}
+            </section>
+        </main>
+
+        <aside class="v3-right-rail">
+            <section class="v3-rail-card">
+                <h3>Product Truth 摘要</h3>
+                {% if product_truth %}<pre>{{ product_truth["product_truth_json"].get("immutable_geometry", {}) | tojson(indent=2) }}</pre>{% else %}<p>未生成</p>{% endif %}
+            </section>
+            <section class="v3-rail-card">
+                <h3>核心参考素材</h3>
+                {% for asset in assets if asset["is_identity_anchor"] %}
+                <p>#{{ asset["id"] }} {{ asset["primary_role"] }} · approved={{ asset["user_approved"] }}</p>
+                {% else %}<p class="v3-warn">缺少身份锚点</p>{% endfor %}
+            </section>
+            <section class="v3-rail-card">
+                <h3>Blocking Errors</h3>
+                {% for error in blocking_errors %}<p><strong>{{ error["scope"] }}</strong> {{ error["code"] }} · {{ error["message"] }}</p>{% else %}<p class="v3-good">无阻塞错误</p>{% endfor %}
+            </section>
+            <section class="v3-rail-card">
+                <h3>成本中心</h3>
+                <p>Prompt {{ cost_center["prompt_cost"] }}</p>
+                <p>Draft {{ cost_center["draft_video_cost"] }}</p>
+                <p>Production {{ cost_center["production_video_cost"] }}</p>
+                <p>Retake {{ cost_center["retake_cost"] }}</p>
+                <p>预算剩余 {{ cost_center["budget_remaining"] }}</p>
+                <details><summary>Shot Cost</summary><pre>{{ cost_center["per_shot"] | tojson(indent=2) }}</pre></details>
+            </section>
+            <section class="v3-rail-card">
+                <h3>Continuity Ledger</h3>
+                {% for state in continuity_states[:3] %}<pre>{{ state | tojson(indent=2) }}</pre>{% else %}<p>暂无连续性状态</p>{% endfor %}
+            </section>
+            <section class="v3-rail-card">
+                <h3>最近操作</h3>
+                {% for event in recent_activity %}<p>{{ event["stage"] }} · {{ event["status"] }} · {{ event["created_at"] }}</p>{% else %}<p>暂无</p>{% endfor %}
+            </section>
+            <section class="v3-rail-card">
+                <h3>Provider Submissions</h3>
+                {% for submission in generation_submissions[:5] %}
+                <p>{{ submission["provider"] }} · {{ submission["generation_tier"] }} · {{ submission["submission_status"] }} · key {{ submission["idempotency_key"][:12] }}</p>
+                {% else %}<p>暂无真实 Provider 提交</p>{% endfor %}
+            </section>
+        </aside>
+    </div>
+</section>
+{% endblock %}

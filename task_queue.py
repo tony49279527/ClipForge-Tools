@@ -8,8 +8,8 @@ Replaces the previous daemon-thread approach with a proper task queue:
   - Job-level and clip-level parallelism
 """
 
-import os
 import logging
+import os
 import threading
 from datetime import datetime
 from importlib import import_module
@@ -20,17 +20,22 @@ from redis.exceptions import RedisError
 from rq import Queue, Retry
 from rq.job import Job as RQJob
 
+from clipforge_v3.services.maintenance_service import assert_writes_allowed
+from clipforge_v3.services.queue_config import resolve_redis_settings
+
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-QUEUE_NAME = os.getenv("RQ_QUEUE_NAME", "clipforge")
+QUEUE_NAME = os.getenv("RQ_QUEUE_NAME", "clipforge").strip() or "clipforge"
 ALLOW_THREAD_FALLBACK = os.getenv("ALLOW_THREAD_FALLBACK", "true").lower() not in {"0", "false", "no"}
 
 # Concurrency limits
 MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "3"))
-MAX_CLIP_WORKERS = int(os.getenv("MAX_CLIP_WORKERS", "4"))  # clips per job in parallel
+MAX_CLIP_WORKERS = int(os.getenv("MAX_CLIP_WORKERS", "4"))
 MAX_RETRIES = int(os.getenv("JOB_RETRIES", "2"))
 RETRY_DELAY_SEC = int(os.getenv("JOB_RETRY_DELAY", "5"))
 
@@ -40,8 +45,7 @@ RETRY_DELAY_SEC = int(os.getenv("JOB_RETRY_DELAY", "5"))
 
 _redis_client: Optional[Redis] = None
 _queue: Optional[Queue] = None
-STATIC_JOB_PREFIXES = ("video", "prompts", "storyboard_video", "publish", "republish", "storyboard_clip")
-logger = logging.getLogger(__name__)
+STATIC_JOB_PREFIXES = ("video", "prompts", "storyboard_video", "publish", "republish", "storyboard_clip", "v3_bootstrap", "v3_generation")
 
 
 class LocalThreadJob:
@@ -77,22 +81,23 @@ def _enqueue_local_fallback(*, job_id: str, func: str, args: List[Any]) -> Local
     return LocalThreadJob(job_id)
 
 
-def _enqueue_with_reusable_job_id(*, job_id: str, func: str, args: List[Any], job_timeout: int) -> RQJob:
+def _enqueue_with_reusable_job_id(*, job_id: str, func: str, args: List[Any], job_timeout: int):
     """Enqueue with a stable job id, reusing active jobs and replacing finished ones."""
-    try:
-        q = get_queue()
-        redis_conn = get_redis()
+    assert_writes_allowed()
+    q = get_queue()
+    redis_conn = get_redis()
 
+    try:
         existing_job = RQJob.fetch(job_id, connection=redis_conn)
         existing_status = existing_job.get_status(refresh=False)
         if existing_status in {"queued", "started", "deferred", "scheduled"}:
             return existing_job
         try:
             existing_job.delete()
-        except Exception:
-            pass
-    except Exception:
-        existing_job = None
+        except Exception as exc:
+            logger.debug("failed to delete finished job %s: %s", job_id, exc)
+    except Exception as exc:
+        logger.debug("could not fetch existing job %s: %s", job_id, exc)
 
     try:
         return q.enqueue(
@@ -116,14 +121,16 @@ def _enqueue_with_reusable_job_id(*, job_id: str, func: str, args: List[Any], jo
 def get_redis() -> Redis:
     global _redis_client
     if _redis_client is None:
-        _redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
+        settings = resolve_redis_settings()
+        _redis_client = Redis.from_url(settings.redis_url, decode_responses=False)
     return _redis_client
 
 
 def get_queue() -> Queue:
     global _queue
     if _queue is None:
-        _queue = Queue(QUEUE_NAME, connection=get_redis(), default_timeout=3600)
+        settings = resolve_redis_settings()
+        _queue = Queue(settings.queue_name, connection=get_redis(), default_timeout=3600)
     return _queue
 
 
@@ -201,12 +208,38 @@ def enqueue_republish_job(job_id: int) -> RQJob:
     )
 
 
+def enqueue_v3_bootstrap_job(project_id: int) -> RQJob:
+    """Enqueue a ClipForge 3.0 bootstrap/status refresh task."""
+    return _enqueue_with_reusable_job_id(
+        job_id=f"v3_bootstrap_{project_id}",
+        func="task_queue.run_v3_bootstrap_wrapper",
+        args=[project_id],
+        job_timeout=600,
+    )
+
+
+def enqueue_v3_generation_job(submission_id: int, idempotency_key: str) -> RQJob:
+    """Enqueue a provider-backed ClipForge 3.0 generation task.
+
+    The RQ job id is stable per idempotency key so worker retries or repeated
+    clicks resume the same provider submission instead of creating another paid
+    task.
+    """
+    return _enqueue_with_reusable_job_id(
+        job_id=f"v3_generation_{idempotency_key}",
+        func="task_queue.run_v3_generation_wrapper",
+        args=[submission_id],
+        job_timeout=7200,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Wrapper functions (called by RQ worker)
 # ---------------------------------------------------------------------------
 
 def run_video_job_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper that runs the 1.0 video job with parallel clip generation."""
+    assert_writes_allowed()
     from video_core import ensure_runtime_dirs, run_video_job_parallel
     from db import get_job_by_id
 
@@ -220,6 +253,7 @@ def run_video_job_wrapper(job_id: int) -> Dict[str, Any]:
 
 def run_storyboard_prompts_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper for storyboard prompt generation."""
+    assert_writes_allowed()
     from app import generate_storyboard_prompts_job as _run
     from db import get_job_by_id
 
@@ -232,6 +266,7 @@ def run_storyboard_prompts_wrapper(job_id: int) -> Dict[str, Any]:
 
 def run_storyboard_images_wrapper(job_id: int, base_url: str, frame_id: int = None) -> Dict[str, Any]:
     """Wrapper for storyboard image generation."""
+    assert_writes_allowed()
     from app import generate_storyboard_images_job as _run
     from db import get_job_by_id
 
@@ -244,6 +279,7 @@ def run_storyboard_images_wrapper(job_id: int, base_url: str, frame_id: int = No
 
 def run_storyboard_video_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper for 2.0 storyboard video generation."""
+    assert_writes_allowed()
     from video_core import ensure_runtime_dirs, run_storyboard_video_job_parallel
     from db import get_job_by_id
 
@@ -270,6 +306,7 @@ def run_storyboard_single_clip_wrapper(job_id: int, clip_index: int) -> Dict[str
 
 def run_publish_wrapper(job_id: int) -> Dict[str, Any]:
     """Wrapper for YouTube publishing."""
+    assert_writes_allowed()
     from app import publish_v2_job as _run
     from db import get_job_by_id
 
@@ -290,6 +327,37 @@ def run_republish_wrapper(job_id: int) -> Dict[str, Any]:
     if not job or job["status"] == "failed":
         raise RuntimeError((job["error_message"] if job else None) or f"YouTube republishing failed for job {job_id}")
     return {"job_id": job_id, "status": job["status"], "youtube_url": job["youtube_url"]}
+
+
+def run_v3_bootstrap_wrapper(project_id: int) -> Dict[str, Any]:
+    """Wrapper for v3 service tasks without importing app.py."""
+    assert_writes_allowed()
+    from clipforge_v3.tasks import bootstrap_project_task
+
+    return bootstrap_project_task(project_id)
+
+
+def run_v3_generation_wrapper(submission_id: int) -> Dict[str, Any]:
+    """Wrapper for v3 provider generation without importing app.py."""
+    assert_writes_allowed()
+    from clipforge_v3.tasks import run_generation_submission_task
+
+    return run_generation_submission_task(submission_id)
+
+
+def run_queue_smoke_wrapper(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """No-side-effect queue smoke task for production candidate validation."""
+    return {"ok": True, "echo": payload.get("echo"), "queue": QUEUE_NAME}
+
+
+def run_queue_retry_smoke_wrapper(redis_key: str) -> Dict[str, Any]:
+    """Fail once, then succeed, using only a temporary Redis key."""
+    redis_conn = get_redis()
+    attempts = int(redis_conn.incr(redis_key))
+    if attempts == 1:
+        raise RuntimeError("intentional queue smoke retry")
+    redis_conn.delete(redis_key)
+    return {"ok": True, "attempts": attempts}
 
 
 # ---------------------------------------------------------------------------

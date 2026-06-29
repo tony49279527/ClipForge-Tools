@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}ClipForge 3.0 Demo{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/v3/style.css">
+<section class="v3-shell">
+    <div class="v3-hero">
+        <div>
+            <div class="v3-eyebrow">ClipForge 3.0 Demo</div>
+            <h1>Guided mock workflow for product video planning</h1>
+            <p>Use this page to create a demo project, confirm product info, prepare a mock prompt, and generate a mock take without touching Ark or any paid video API.</p>
+        </div>
+        <div class="v3-badges">
+            <span class="v3-badge">Mode: {{ system_overview["provider_mode"] | upper }}</span>
+            <span class="v3-badge">Database: {{ system_overview["database_backend"] }}</span>
+            <span class="v3-badge">Storage: {{ system_overview["storage_backend"] | upper }}</span>
+        </div>
+    </div>
+
+    <div class="v3-alert v3-alert-warn">
+        <strong>Demo mode only.</strong> No Ark / Seedance call. No paid video generation.
+    </div>
+    {% if notice %}<div class="v3-alert v3-alert-good">{{ notice }}</div>{% endif %}
+    {% if error_message %}<div class="v3-alert v3-alert-danger">{{ error_message }}</div>{% endif %}
+
+    <section class="v3-panel">
+        <h2>System status</h2>
+        <div class="v3-grid">
+            <div class="v3-status-box">
+                <strong>Current mode</strong>
+                <span>{{ "MOCK / no paid generation" if system_overview["provider_mode"] == "mock" else "Real provider configured" }}</span>
+            </div>
+            <div class="v3-status-box">
+                <strong>Redis</strong>
+                <span>{{ "Ready" if system_overview["redis_ok"] else "Needs attention" }}</span>
+                <small>{{ system_overview["redis_message"] }}</small>
+            </div>
+            <div class="v3-status-box">
+                <strong>Worker</strong>
+                <span>{{ "Ready" if system_overview["worker_ok"] else "Needs attention" }}</span>
+                <small>{{ system_overview["worker_message"] }}</small>
+            </div>
+            <div class="v3-status-box">
+                <strong>Maintenance mode</strong>
+                <span>{{ "On" if system_overview["maintenance_mode"] else "Off" }}</span>
+            </div>
+            <div class="v3-status-box">
+                <strong>Writes</strong>
+                <span>{{ "Enabled" if system_overview["writes_enabled"] else "Frozen" }}</span>
+            </div>
+            <div class="v3-status-box">
+                <strong>More details</strong>
+                <span><a href="/v3/ready">Open readiness check</a></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="v3-panel">
+        <h2>Step 1 · Project</h2>
+        <div class="v3-demo-grid">
+            <form action="/v3/demo/projects" method="post" class="v3-form">
+                <label>Project name<input type="text" name="project_name" placeholder="{{ demo_defaults['project_name'] }}"></label>
+                <label>Product name<input type="text" name="product_name" placeholder="{{ demo_defaults['product_name'] }}"></label>
+                <label>Category<input type="text" name="product_category" placeholder="{{ demo_defaults['product_category'] }}"></label>
+                <label>Material<input type="text" name="material" placeholder="{{ demo_defaults['materials_input'] }}"></label>
+                <label>Target marketplace<input type="text" name="target_marketplace" placeholder="{{ demo_defaults['target_market'] }}"></label>
+                <label>Video style<input type="text" name="video_style" placeholder="clean Amazon demo"></label>
+                <label class="v3-span-2">Key selling points<textarea name="key_selling_points" rows="3" placeholder="70 ply, 1 inch thickness, 1/2 inch arbor hole, for final polishing"></textarea></label>
+                <label class="v3-span-2"><input type="checkbox" name="use_demo_product" value="true" checked> Use built-in Buffing Wheel demo data</label>
+                <div class="v3-span-2 v3-actions">
+                    <button class="btn" type="submit">Create demo project</button>
+                    <a class="btn ghost" href="/v3/projects">Open full project list</a>
+                </div>
+            </form>
+            <div class="v3-card">
+                <h3>Select an existing project</h3>
+                <form action="/v3/demo/select-project" method="post" class="v3-form v3-form-single">
+                    <label>Existing V3 project
+                        <select name="project_id" {% if not all_projects %}disabled{% endif %}>
+                            {% for project in all_projects %}
+                            <option value="{{ project['id'] }}" {% if selected_project and selected_project['id'] == project['id'] %}selected{% endif %}>#{{ project["id"] }} · {{ project["project_name"] }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <button class="btn ghost" type="submit" {% if not all_projects %}disabled{% endif %}>Open in demo flow</button>
+                </form>
+                {% if selected_project %}
+                <p class="v3-muted">Current project: <strong>#{{ selected_project["id"] }} {{ selected_project["project_name"] }}</strong></p>
+                {% else %}
+                <p class="v3-muted">Create a demo project or pick an existing one to unlock the next steps.</p>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <section class="v3-panel">
+        <h2>Step 2 · Product Info / Image</h2>
+        {% if selected_project %}
+        <div class="v3-demo-grid">
+            <form action="/v3/demo/projects/{{ selected_project['id'] }}/product-info" method="post" class="v3-form">
+                <label class="v3-span-2">Product description<textarea name="source_description" rows="5">{{ selected_detail["product_truth"]["source_description"] if selected_detail["product_truth"] else demo_defaults["source_description"] }}</textarea></label>
+                <label>Dimensions<input type="text" name="dimensions_input" value="{{ selected_project['dimensions_input'] or demo_defaults['dimensions_input'] }}"></label>
+                <label>Materials<input type="text" name="materials_input" value="{{ selected_project['materials_input'] or demo_defaults['materials_input'] }}"></label>
+                <label>Working surface<input type="text" name="working_surface_input" value="{{ selected_project['working_surface_input'] or demo_defaults['working_surface_input'] }}"></label>
+                <label>Marketplace<input type="text" name="target_marketplace" value="{{ selected_project['target_market'] }}"></label>
+                <label>Video style<input type="text" name="video_style" value="clean Amazon demo"></label>
+                <label class="v3-span-2">Parts or selling points<textarea name="parts_summary" rows="3">{{ selected_project['parts_summary'] }}</textarea></label>
+                <label class="v3-span-2"><input type="checkbox" name="confirm_truth" value="true" {% if selected_detail["product_truth"] and selected_detail["product_truth"]["user_approved"] %}checked{% endif %}> Confirm Product Truth now</label>
+                <div class="v3-span-2 v3-actions">
+                    <button class="btn" type="submit">Save product info</button>
+                    <a class="btn ghost" href="/v3/projects/{{ selected_project['id'] }}">Open full project console</a>
+                </div>
+            </form>
+            <div class="v3-card">
+                <h3>Product image</h3>
+                <form action="/v3/demo/projects/{{ selected_project['id'] }}/assets/upload" method="post" enctype="multipart/form-data" class="v3-form v3-form-single">
+                    <label>Upload a real product image<input type="file" name="asset_file" accept="image/*" required></label>
+                    <button class="btn ghost" type="submit">Upload image</button>
+                </form>
+                <form action="/v3/demo/projects/{{ selected_project['id'] }}/assets/sample" method="post" class="v3-actions">
+                    <button class="btn ghost" type="submit">Use built-in demo image</button>
+                </form>
+                {% set identity_assets = selected_detail["assets"] | selectattr("primary_role", "equalto", "product_identity") | list %}
+                {% if identity_assets %}
+                <div class="v3-demo-assets">
+                    {% for asset in identity_assets[:2] %}
+                    <article class="v3-asset-card">
+                        {% if asset["access_url"] %}<img src="{{ asset['access_url'] }}" alt="{{ asset['original_filename'] }}">{% endif %}
+                        <strong>#{{ asset["id"] }} {{ asset["original_filename"] }}</strong>
+                        <span>approved={{ asset["user_approved"] }} · anchor={{ asset["is_identity_anchor"] }}</span>
+                    </article>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="v3-muted">No product image yet. Upload one or use the built-in demo image.</p>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <p class="v3-empty">Start with Step 1 to unlock product info and image actions.</p>
+        {% endif %}
+    </section>
+
+    <section class="v3-panel">
+        <h2>Step 3 · Prompt</h2>
+        {% if selected_project %}
+        <div class="v3-demo-grid">
+            <div class="v3-card">
+                <form action="/v3/demo/projects/{{ selected_project['id'] }}/prompt" method="post" class="v3-actions">
+                    <button class="btn" type="submit">Generate mock prompt</button>
+                </form>
+                {% if latest_prompt %}
+                <p><strong>Latest prompt:</strong> {{ latest_prompt["prompt_char_count"] }} chars · allow submit = {{ latest_prompt["allow_submit"] }}</p>
+                <div class="v3-prompt-block">
+                    <h4>Scene brief</h4>
+                    <pre>{{ latest_prompt["prompt_text"] }}</pre>
+                </div>
+                <div class="v3-grid">
+                    <div class="v3-status-box">
+                        <strong>Product constraints</strong>
+                        <pre>{{ latest_prompt["role_map_json"] | tojson(indent=2) }}</pre>
+                    </div>
+                    <div class="v3-status-box">
+                        <strong>Validation</strong>
+                        <pre>{{ latest_prompt["validation_result_json"] | tojson(indent=2) }}</pre>
+                    </div>
+                </div>
+                {% else %}
+                <p class="v3-muted">No prompt yet. Confirm Product Truth and set an image first, then generate a mock prompt.</p>
+                {% endif %}
+            </div>
+            <div class="v3-card">
+                <h3>What this step shows</h3>
+                <ul class="v3-list">
+                    <li>Scene brief</li>
+                    <li>Product constraints</li>
+                    <li>Negative constraints</li>
+                    <li>Duration</li>
+                    <li>Provider mode = mock</li>
+                </ul>
+            </div>
+        </div>
+        {% else %}
+        <p class="v3-empty">Select a project to prepare a prompt.</p>
+        {% endif %}
+    </section>
+
+    <section class="v3-panel">
+        <h2>Step 4 · Mock Generate</h2>
+        {% if selected_project %}
+        <div class="v3-demo-grid">
+            <div class="v3-card">
+                <form action="/v3/demo/projects/{{ selected_project['id'] }}/generate" method="post" class="v3-actions">
+                    <button class="btn" type="submit">Submit mock video job</button>
+                </form>
+                <p class="v3-muted">This path stays inside the mock provider and never creates a paid Ark / Seedance task.</p>
+            </div>
+            <div class="v3-card">
+                <h3>Expected status</h3>
+                <ul class="v3-list">
+                    <li>Provider = mock</li>
+                    <li>Job status = completed</li>
+                    <li>Take created locally</li>
+                    <li>Cost = 0</li>
+                </ul>
+            </div>
+        </div>
+        {% else %}
+        <p class="v3-empty">Create or select a project before mock generation.</p>
+        {% endif %}
+    </section>
+
+    <section class="v3-panel">
+        <h2>Step 5 · Result / Take</h2>
+        {% if latest_take %}
+        <div class="v3-demo-grid">
+            <article class="v3-card">
+                <h3>Latest mock result</h3>
+                {% if latest_take["preview_url"] %}<video src="{{ latest_take['preview_url'] }}" controls></video>{% endif %}
+                <p><strong>Take ID:</strong> {{ latest_take["id"] }}</p>
+                <p><strong>Status:</strong> {{ latest_take["status"] }}</p>
+                <p><strong>Provider:</strong> mock</p>
+                <p><strong>Created:</strong> {{ latest_take["created_at"] }}</p>
+                <p><strong>Cost:</strong> {{ latest_take["estimated_cost"] }}</p>
+                <p><strong>Shot:</strong> {{ latest_take["business_shot_id"] }}</p>
+            </article>
+            <article class="v3-card">
+                <h3>Result summary</h3>
+                <ul class="v3-list">
+                    <li>Prompt version: {{ latest_take["prompt_version_id"] }}</li>
+                    <li>Mock task ID: {{ latest_take["seedance_task_id"] }}</li>
+                    <li>Tier: {{ latest_take["tier"] }}</li>
+                    <li>Cost: 0 in demo mode</li>
+                </ul>
+                <div class="v3-actions">
+                    <a class="btn ghost" href="/v3/projects/{{ selected_project['id'] }}">Open full V3 project console</a>
+                </div>
+            </article>
+        </div>
+        {% elif selected_project %}
+        <p class="v3-empty">No mock take yet. Generate a mock video to see the result here.</p>
+        {% else %}
+        <p class="v3-empty">The result area unlocks after you create a demo project.</p>
+        {% endif %}
+    </section>
+</section>
+{% endblock %}

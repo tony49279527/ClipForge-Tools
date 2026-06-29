@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClipForgeV3ShotPromptContract",
+  "type": "object",
+  "required": ["purpose", "subject_action", "camera_contract", "constraints"],
+  "properties": {
+    "purpose": {"type": "string", "minLength": 3},
+    "subject_action": {"type": "string", "minLength": 3},
+    "camera_contract": {"type": "object"},
+    "constraints": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  }
+}

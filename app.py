@@ -9,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 from zoneinfo import ZoneInfo
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Header
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -1363,49 +1363,56 @@ class ExternalJobPayload(BaseModel):
     stitch_final_video: Optional[bool] = True
     reference_image_urls: Optional[List[str]] = Field(default_factory=list)
 
-    @validator("video_mode")
+    @field_validator("video_mode")
+    @classmethod
     def validate_video_mode(cls, value: Optional[str]) -> str:
         allowed = {"shorts", "long_video"}
         if value not in allowed:
             raise ValueError(f"video_mode must be one of {sorted(allowed)}")
         return value
 
-    @validator("ratio")
+    @field_validator("ratio")
+    @classmethod
     def validate_ratio(cls, value: Optional[str]) -> str:
         allowed = {"9:16", "16:9"}
         if value not in allowed:
             raise ValueError(f"ratio must be one of {sorted(allowed)}")
         return value
 
-    @validator("clip_duration")
+    @field_validator("clip_duration")
+    @classmethod
     def validate_clip_duration(cls, value: Optional[int]) -> int:
         allowed = {5, 10, 15}
         if value not in allowed:
             raise ValueError(f"clip_duration must be one of {sorted(allowed)}")
         return int(value)
 
-    @validator("clip_count")
+    @field_validator("clip_count")
+    @classmethod
     def validate_clip_count(cls, value: Optional[int]) -> int:
         allowed = {1, 2, 4, 20}
         if value not in allowed:
             raise ValueError(f"clip_count must be one of {sorted(allowed)}")
         return int(value)
 
-    @validator("resolution")
+    @field_validator("resolution")
+    @classmethod
     def validate_resolution(cls, value: Optional[str]) -> str:
         allowed = {"480p", "720p"}
         if value not in allowed:
             raise ValueError(f"resolution must be one of {sorted(allowed)}")
         return value
 
-    @validator("privacy")
+    @field_validator("privacy")
+    @classmethod
     def validate_privacy(cls, value: Optional[str]) -> str:
         allowed = {"private", "unlisted", "public"}
         if value not in allowed:
             raise ValueError(f"privacy must be one of {sorted(allowed)}")
         return value
 
-    @validator("reference_image_urls")
+    @field_validator("reference_image_urls")
+    @classmethod
     def validate_reference_image_urls(cls, value: Optional[List[str]]) -> List[str]:
         urls = value or []
         if len(urls) > 20:

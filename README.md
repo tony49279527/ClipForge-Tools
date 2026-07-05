@@ -353,7 +353,10 @@ Also note:
 - `GET /jobs`
 - `GET /jobs/{job_id}`
 - `GET /jobs/{job_id}/status`
-- `GET /healthz`
+- `GET /health`
+- `GET /healthz` (compatibility)
+- `GET /v3/health`
+- `GET /v3/ready`
 
 ## Security Notes
 

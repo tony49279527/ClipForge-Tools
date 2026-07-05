@@ -755,6 +755,7 @@ def job_video(job_id: int):
     return FileResponse(video_path, media_type="video/mp4")
 
 
+@app.get("/health")
 @app.get("/healthz")
 def healthz():
     return {"ok": True}

@@ -56,6 +56,7 @@ def test_maintenance_mode_allows_get_pages_and_health(monkeypatch, tmp_path):
         assert loaded.client.get("/jobs").status_code == 200
         assert loaded.client.get("/v2").status_code == 200
         assert loaded.client.get("/v3").status_code == 200
+        assert loaded.client.get("/health").status_code == 200
         assert loaded.client.get("/healthz").status_code == 200
         assert loaded.client.get("/v3/ready").status_code == 200
     finally:

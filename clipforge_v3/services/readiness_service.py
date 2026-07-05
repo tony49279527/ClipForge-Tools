@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
+
+from rq import Queue, Worker
 
 from db import get_conn
 from task_queue import get_redis
@@ -92,26 +95,24 @@ def _check_worker() -> dict:
     required = os.getenv("WORKER_REQUIRED", "false").strip().lower() in {"1", "true", "yes", "on"} or os.getenv("REDIS_REQUIRED", "").strip().lower() in {"1", "true", "yes", "on"}
     try:
         redis = get_redis()
-        workers = redis.keys("rq:worker:*")
+        settings = resolve_redis_settings()
+        queue = Queue(settings.queue_name, connection=redis)
+        workers = Worker.all(queue=queue)
         healthy = []
         heartbeat_ages: list[float] = []
-        from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc)
-        for key in workers:
-            data = redis.hgetall(key) or {}
-            raw = data.get("last_heartbeat") or data.get(b"last_heartbeat") or data.get("birth")
+        for worker in workers:
             age = None
             ttl = None
             try:
-                ttl = redis.ttl(key)
+                ttl = redis.ttl(worker.key)
             except Exception:
                 ttl = None
-            if raw:
+
+            heartbeat = getattr(worker, "last_heartbeat", None) or getattr(worker, "birth_date", None)
+            if heartbeat:
                 try:
-                    if isinstance(raw, bytes):
-                        raw = raw.decode("utf-8")
-                    heartbeat = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                     if heartbeat.tzinfo is None:
                         heartbeat = heartbeat.replace(tzinfo=timezone.utc)
                     age = max((now - heartbeat).total_seconds(), 0)
@@ -119,7 +120,7 @@ def _check_worker() -> dict:
                 except Exception:
                     age = None
             if (isinstance(ttl, int) and ttl > 0) or age is None or age <= max_age:
-                healthy.append(key)
+                healthy.append(worker)
         ok = bool(healthy) if required else True
         return {
             "ok": ok,
@@ -127,7 +128,8 @@ def _check_worker() -> dict:
             "registered_workers": len(workers),
             "healthy_workers": len(healthy),
             "heartbeat_age": min(heartbeat_ages) if heartbeat_ages else None,
-            "message": f"Worker records visible: {len(workers)}; healthy: {len(healthy)}.",
+            "queue_name": settings.queue_name,
+            "message": f"RQ workers visible on queue {settings.queue_name}: {len(workers)}; healthy: {len(healthy)}.",
         }
     except Exception as exc:
         return {
@@ -136,6 +138,7 @@ def _check_worker() -> dict:
             "registered_workers": 0,
             "healthy_workers": 0,
             "heartbeat_age": None,
+            "queue_name": os.getenv("RQ_QUEUE_NAME", "clipforge"),
             "message": f"Worker check failed. Next step: run the RQ worker service. {exc}",
         }
 
@@ -150,5 +153,7 @@ def readiness() -> dict:
         "worker": _check_worker(),
     }
     required = {"database", "ffmpeg", "provider", "storage"}
+    if checks["worker"].get("required"):
+        required.add("worker")
     ok = all(checks[name]["ok"] for name in required)
     return {"ok": ok, "checks": checks}
